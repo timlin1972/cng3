@@ -1,0 +1,6 @@
+p panels init
+p panels create command 0 0 100 3
+p panels create log 0 3 100 50
+p cli init gui command
+p log gui log
+#p cli init cli
