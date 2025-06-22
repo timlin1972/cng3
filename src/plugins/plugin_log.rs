@@ -2,20 +2,20 @@ use async_trait::async_trait;
 use log::Level::{Info, Warn};
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_LOG, Cmd, Data, Log, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_LOG, Cmd, Data, Log, Msg};
 use crate::plugins::plugins_main;
 use crate::utils;
 
 const MODULE: &str = "log";
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     name: String,
     msg_tx: Sender<Msg>,
     gui_panel: String,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
         let msg = Msg {
             ts: utils::ts(),
@@ -36,7 +36,7 @@ impl Plugin {
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -61,7 +61,7 @@ impl plugins_main::Plugin for Plugin {
                                     module: MODULE.to_string(),
                                     data: Data::Cmd(Cmd {
                                         cmd: format!(
-                                            "p panels output {} '{} [{level}] {msg}'",
+                                            "p panels output_push {} '{} [{level}] {msg}'",
                                             self.gui_panel,
                                             utils::ts_str(ts)
                                         ),
@@ -83,6 +83,7 @@ impl plugins_main::Plugin for Plugin {
                             self.gui_panel = gui_panel.to_string();
                         }
                     }
+                    ACTION_ARROW => (),
                     _ => {
                         self.log(
                             MODULE,

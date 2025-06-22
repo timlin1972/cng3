@@ -4,16 +4,16 @@ use async_trait::async_trait;
 use log::Level::Info;
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::{Constraint, Direction, Layout, Position, Rect},
+    layout::Rect,
     style::{Color, Style},
-    text::Text,
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_CREATE, ACTION_INIT, ACTION_SHOW, Data, Log, Msg};
-use crate::plugins::plugins_main;
+use crate::messages::{ACTION_ARROW, ACTION_CREATE, ACTION_INIT, ACTION_SHOW, Cmd, Data, Log, Msg};
+use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
 
 const MODULE: &str = "panels";
@@ -21,6 +21,8 @@ const MODULE: &str = "panels";
 #[derive(Debug)]
 struct Panel {
     title: String,
+    sub_title: String,
+    plugin_name: String,
     x: u16,
     y: u16,
     x_width: u16,
@@ -29,7 +31,7 @@ struct Panel {
 }
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     name: String,
     msg_tx: Sender<Msg>,
     shutdown_tx: broadcast::Sender<()>,
@@ -39,7 +41,7 @@ pub struct Plugin {
     panels: Vec<Panel>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
         let msg = Msg {
             ts: utils::ts(),
@@ -77,7 +79,7 @@ impl Plugin {
         }
     }
 
-    fn handle_cmd_init(&mut self) {
+    async fn handle_cmd_init(&mut self) {
         if self.inited {
             return;
         }
@@ -88,6 +90,8 @@ impl Plugin {
             let _ = shutdown_rx.recv().await;
             ratatui::restore();
         });
+
+        self.log(MODULE, Info, format!("[{MODULE}] init")).await;
     }
 
     fn handle_cmd_tab(&mut self) {
@@ -164,10 +168,63 @@ impl Plugin {
             }
         }
     }
+
+    async fn handle_cmd_page(&mut self, cmd_parts: &[String]) {
+        if let Some(left_right) = cmd_parts.get(3) {
+            for (idx, panel) in self.panels.iter_mut().enumerate() {
+                if idx == self.active_panel {
+                    let msg = Msg {
+                        ts: utils::ts(),
+                        module: MODULE.to_string(),
+                        data: Data::Cmd(Cmd {
+                            cmd: format!("p {} {ACTION_ARROW} {left_right}", panel.plugin_name),
+                        }),
+                    };
+                    let _ = self.msg_tx.send(msg).await;
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn handle_cmd_sub_title(&mut self, cmd_parts: &[String]) {
+        if let Some(mut terminal) = self.terminal.take() {
+            if let (Some(panel_title), Some(sub_title)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+                if let Some(panel) = self.panels.iter_mut().find(|p| p.title == *panel_title) {
+                    panel.sub_title = sub_title.to_string();
+                }
+            }
+            let _ = terminal.draw(|frame| self.draw(frame));
+            self.terminal = Some(terminal);
+        }
+    }
+
+    async fn handle_cmd_show(&mut self) {
+        self.log(MODULE, Info, format!("[{MODULE}] show")).await;
+        self.log(MODULE, Info, format!("[{MODULE}] inited: {}", self.inited))
+            .await;
+        self.log(
+            MODULE,
+            Info,
+            format!("{:<12} {:<12} {:12}", "Title", "Subtitle", "Plugin"),
+        )
+        .await;
+        for panel in &self.panels {
+            self.log(
+                MODULE,
+                Info,
+                format!(
+                    "{:<12} {:<12} {:12}",
+                    panel.title, panel.sub_title, panel.plugin_name
+                ),
+            )
+            .await;
+        }
+    }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -181,24 +238,26 @@ impl plugins_main::Plugin for Plugin {
             let cmd_parts = shell_words::split(&cmd.cmd).expect("Failed to parse cmd.");
             if let Some(action) = cmd_parts.get(2) {
                 match action.as_str() {
-                    ACTION_INIT => {
-                        self.handle_cmd_init();
+                    ACTION_INIT => self.handle_cmd_init().await,
+                    ACTION_SHOW => self.handle_cmd_show().await,
+                    "tab" => self.handle_cmd_tab(),
+                    "size" => self.handle_cmd_size(&cmd_parts),
+                    "location" => self.handle_cmd_location(&cmd_parts),
+                    ACTION_ARROW => self.handle_cmd_page(&cmd_parts).await,
+                    "sub_title" => self.handle_cmd_sub_title(&cmd_parts).await,
+                    "output_clear" => {
+                        if let Some(mut terminal) = self.terminal.take() {
+                            for (idx, panel) in self.panels.iter_mut().enumerate() {
+                                if idx == self.active_panel {
+                                    panel.output.clear();
+                                    break;
+                                }
+                            }
+                            let _ = terminal.draw(|frame| self.draw(frame));
+                            self.terminal = Some(terminal);
+                        }
                     }
-                    ACTION_SHOW => {
-                        self.log(MODULE, Info, format!("[{MODULE}] show")).await;
-                        self.log(MODULE, Info, format!("[{MODULE}] inited: {}", self.inited))
-                            .await;
-                    }
-                    "tab" => {
-                        self.handle_cmd_tab();
-                    }
-                    "size" => {
-                        self.handle_cmd_size(&cmd_parts);
-                    }
-                    "location" => {
-                        self.handle_cmd_location(&cmd_parts);
-                    }
-                    "output" => {
+                    "output_update" => {
                         if let Some(mut terminal) = self.terminal.take() {
                             if let (Some(panel_title), Some(output)) =
                                 (cmd_parts.get(3), cmd_parts.get(4))
@@ -206,39 +265,60 @@ impl plugins_main::Plugin for Plugin {
                                 if let Some(panel) =
                                     self.panels.iter_mut().find(|p| p.title == *panel_title)
                                 {
-                                    let output_string = output.to_string();
-                                    // this is a very special case
-                                    if panel_title == "command" {
-                                        panel.output.clear();
-                                    }
-                                    panel.output.push(output_string);
+                                    panel.output.clear();
+                                    panel.output.push(output.to_string());
                                 }
-                                let _ = terminal.draw(|frame| self.draw(frame));
-                                self.terminal = Some(terminal);
                             }
+                            let _ = terminal.draw(|frame| self.draw(frame));
+                            self.terminal = Some(terminal);
+                        }
+                    }
+                    "output_push" => {
+                        if let Some(mut terminal) = self.terminal.take() {
+                            if let (Some(panel_title), Some(output)) =
+                                (cmd_parts.get(3), cmd_parts.get(4))
+                            {
+                                if let Some(panel) =
+                                    self.panels.iter_mut().find(|p| p.title == *panel_title)
+                                {
+                                    panel.output.push(output.to_string());
+                                }
+                            }
+                            let _ = terminal.draw(|frame| self.draw(frame));
+                            self.terminal = Some(terminal);
                         }
                     }
                     ACTION_CREATE => {
                         if let Some(mut terminal) = self.terminal.take() {
-                            if let (Some(title), Some(x), Some(y), Some(x_width), Some(y_height)) = (
+                            if let (
+                                Some(title),
+                                Some(plugin_name),
+                                Some(x),
+                                Some(y),
+                                Some(x_width),
+                                Some(y_height),
+                            ) = (
                                 cmd_parts.get(3),
                                 cmd_parts.get(4),
                                 cmd_parts.get(5),
                                 cmd_parts.get(6),
                                 cmd_parts.get(7),
+                                cmd_parts.get(8),
                             ) {
                                 let panel = Panel {
                                     title: title.to_string(),
+                                    sub_title: String::new(),
+                                    plugin_name: plugin_name.to_string(),
                                     x: x.parse::<u16>()
                                         .unwrap_or_else(|_| panic!("Failed to parse x (`{x}`)")),
                                     y: y.parse::<u16>()
-                                        .unwrap_or_else(|_| panic!("Failed to parse x (`{x}`)")),
-                                    x_width: x_width
-                                        .parse::<u16>()
-                                        .unwrap_or_else(|_| panic!("Failed to parse x (`{x}`)")),
-                                    y_height: y_height
-                                        .parse::<u16>()
-                                        .unwrap_or_else(|_| panic!("Failed to parse x (`{x}`)")),
+                                        .unwrap_or_else(|_| panic!("Failed to parse y (`{y}`)")),
+                                    x_width: x_width.parse::<u16>().unwrap_or_else(|_| {
+                                        panic!("Failed to parse x_width (`{x_width}`)")
+                                    }),
+                                    y_height: y_height.parse::<u16>().unwrap_or_else(|_| {
+                                        panic!("Failed to parse y_height (`{y_height}`)")
+                                    }),
                                     output: vec![],
                                 };
                                 self.panels.push(panel);
@@ -250,7 +330,7 @@ impl plugins_main::Plugin for Plugin {
                                     MODULE,
                                     Info,
                                     format!(
-                                        "[{MODULE}] Missing title/x/y/x_width/y_height for cmd `{}`.",
+                                        "[{MODULE}] Missing title/plugin_name/x/y/x_width/y_height for cmd `{}`.",
                                         cmd.cmd
                                     ),
                                 )
@@ -294,7 +374,7 @@ fn draw_panel(panel: &Panel, frame: &mut Frame, active: bool) {
 
     let panel_block = Block::default()
         .borders(Borders::ALL)
-        .title(panel.title.clone())
+        .title(format!("{}{}", panel.title, panel.sub_title))
         .padding(ratatui::widgets::Padding::new(0, 0, 0, 0))
         .border_type(if active {
             BorderType::Double
@@ -313,7 +393,28 @@ fn draw_panel(panel: &Panel, frame: &mut Frame, active: bool) {
         0
     };
 
-    let text = Paragraph::new(Text::from(panel.output.join("\n")))
+    let lines: Vec<Line> = panel
+        .output
+        .iter()
+        .flat_map(|entry| {
+            entry
+                .split('\n') // 處理內部的換行
+                .map(|subline| {
+                    if subline.contains("[WARN]") {
+                        Line::from(Span::styled(
+                            subline.to_string(),
+                            Style::default().fg(Color::Red),
+                        ))
+                    } else {
+                        Line::from(Span::raw(subline.to_string()))
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    // let text = Paragraph::new(Text::from(panel.output.join("\n")))
+    let text = Paragraph::new(Text::from(lines))
         .style(Style::default().fg(if active { Color::Cyan } else { Color::White }))
         .scroll((scroll_offset, 0));
 

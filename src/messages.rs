@@ -1,18 +1,26 @@
-use std::sync::Arc;
-
+use log::Level::{Info, Warn};
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::plugins::plugins_main::Plugins;
 use crate::utils;
 
 const MODULE: &str = "messages";
-const MSG_SIZE: usize = 4096;
 
+pub const ACTION_ARROW: &str = "arrow";
 pub const ACTION_CREATE: &str = "create";
+pub const ACTION_DEVICES: &str = "devices";
+pub const ACTION_FILE_MODIFY: &str = "file_modify";
+pub const ACTION_FILE_REMOVE: &str = "file_remove";
 pub const ACTION_INIT: &str = "init";
 pub const ACTION_LOG: &str = "log";
+pub const ACTION_NAS_STATE: &str = "nas_state";
+pub const ACTION_ONBOARD: &str = "onboard";
+pub const ACTION_PUBLISH: &str = "publish";
 pub const ACTION_SHOW: &str = "show";
+pub const ACTION_TAILSCALE_IP: &str = "tailscale_ip";
+pub const ACTION_TEMPERATURE: &str = "temperature";
+pub const ACTION_VERSION: &str = "version";
 
 #[derive(Debug)]
 pub enum Data {
@@ -39,34 +47,30 @@ pub struct Cmd {
 }
 
 pub struct Messages {
-    pub msg_tx: Arc<mpsc::Sender<Msg>>,
+    msg_tx: Sender<Msg>,
 }
 
 impl Messages {
-    pub async fn new(shutdown_tx: broadcast::Sender<()>) -> Self {
-        let (msg_tx, mut msg_rx) = mpsc::channel::<Msg>(MSG_SIZE);
+    pub async fn new(
+        msg_tx: Sender<Msg>,
+        mut msg_rx: Receiver<Msg>,
+        shutdown_notify: broadcast::Sender<()>,
+    ) -> Self {
+        let mut plugins = Plugins::new(msg_tx.clone(), shutdown_notify.clone()).await;
 
-        let mut plugins = Plugins::new(msg_tx.clone(), shutdown_tx.clone()).await;
-
-        let msg_tx = Arc::new(msg_tx.clone());
-        let msg_tx_clone = Arc::clone(&msg_tx);
+        let msg_tx_clone = msg_tx.clone();
 
         tokio::spawn(async move {
             loop {
-                let msg_tx_clone_clone = msg_tx_clone.clone();
-                let shutdown_tx_clone = shutdown_tx.clone();
-                let mut shutdown_rx = shutdown_tx_clone.subscribe();
+                let shutdown_notify_clone = shutdown_notify.clone();
+                let mut shutdown_rx = shutdown_notify_clone.subscribe();
 
                 tokio::select! {
                     maybe_msg = msg_rx.recv() => {
                         if let Some(msg) = maybe_msg {
                             match msg.data {
-                                Data::Log(ref _log) => {
-                                    parse_log(&msg, msg_tx_clone_clone).await;
-                                }
-                                Data::Cmd(ref _cmd) => {
-                                    parse_cmd(&msg, msg_tx_clone_clone, &mut plugins, shutdown_tx_clone).await;
-                                }
+                                Data::Log(ref log) => parse_log(log, msg.ts, &msg.module, &msg_tx_clone).await,
+                                Data::Cmd(ref _cmd) => parse_cmd(&msg, &msg_tx_clone, &mut plugins, shutdown_notify_clone).await,
                             }
                         } else {
                             break; // msg_rx channel closed
@@ -84,38 +88,36 @@ impl Messages {
             ts: utils::ts(),
             module: MODULE.to_string(),
             data: Data::Log(Log {
-                level: log::Level::Info,
+                level: Info,
                 msg: format!("[{MODULE}] new"),
             }),
         };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        let _ = msg_tx.send(msg).await;
 
         Self { msg_tx }
     }
 
     pub async fn send(&self, msg: Msg) {
-        self.msg_tx.send(msg).await.expect("Failed to send message");
+        let _ = self.msg_tx.send(msg).await;
     }
 }
 
-async fn parse_log(msg: &Msg, msg_tx: Arc<Sender<Msg>>) {
-    if let Data::Log(log) = &msg.data {
-        let msg = Msg {
-            ts: msg.ts,
-            module: msg.module.clone(),
-            data: Data::Cmd(Cmd {
-                cmd: format!("p log log {} '{}'", log.level, log.msg),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
-    }
+async fn parse_log(log: &Log, ts: u64, module: &str, msg_tx: &Sender<Msg>) {
+    let msg = Msg {
+        ts,
+        module: module.to_string(),
+        data: Data::Cmd(Cmd {
+            cmd: format!("p log {ACTION_LOG} {} '{}'", log.level, log.msg),
+        }),
+    };
+    let _ = msg_tx.send(msg).await;
 }
 
 async fn parse_cmd(
     msg: &Msg,
-    msg_tx: Arc<Sender<Msg>>,
+    msg_tx: &Sender<Msg>,
     plugins: &mut Plugins,
-    shutdown_tx: broadcast::Sender<()>,
+    shutdown_notify: broadcast::Sender<()>,
 ) {
     if let Data::Cmd(cmd) = &msg.data {
         let cmd = &cmd.cmd;
@@ -127,24 +129,23 @@ async fn parse_cmd(
         if cmd_parts.is_empty() {
             return;
         }
+
         let command = cmd_parts[0];
         match command {
-            "p" => {
-                plugins.handle_cmd(msg).await;
-            }
-            "exit" | "q" => {
-                let _ = shutdown_tx.send(());
+            "p" => plugins.handle_cmd(msg).await,
+            "exit" | "q" | "quit" => {
+                let _ = shutdown_notify.send(());
             }
             _ => {
                 let msg = Msg {
                     ts: utils::ts(),
                     module: MODULE.to_string(),
                     data: Data::Log(Log {
-                        level: log::Level::Warn,
+                        level: Warn,
                         msg: format!("[{MODULE}] Unknown command: {command}"),
                     }),
                 };
-                msg_tx.send(msg).await.expect("Failed to send message");
+                let _ = msg_tx.send(msg).await;
             }
         }
     }

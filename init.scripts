@@ -1,6 +1,18 @@
-#p panels init
-#p panels create command 0 0 100 3
-#p panels create log 0 3 100 50
-#p cli init gui command
-#p log gui log
-p cli init cli
+# for GUI mode
+p panels init
+
+# - command
+p panels create command 0 0 79 3
+p cli init gui command
+
+# - log
+p panels create log 0 3 79 30
+p log gui log
+
+# mqtt
+p panels create mqtt 80 0 30 33
+p mqtt init
+
+# for CLI mode
+#p cli init cli
+#p mqtt init

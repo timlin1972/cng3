@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::io::{self, BufRead};
-use std::path::Path;
 
 use async_trait::async_trait;
+use log::Level::{Info, Warn};
 use tokio::sync::mpsc::Sender;
 
 use crate::messages::{ACTION_INIT, ACTION_SHOW, Data, Log, Msg};
@@ -10,21 +10,21 @@ use crate::plugins::plugins_main;
 use crate::utils;
 
 const MODULE: &str = "scripts";
-const SCRIPTS_FILENAME: &str = "./init.scripts";
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     name: String,
     msg_tx: Sender<Msg>,
+    scripts_filename: Option<String>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
         let msg = Msg {
             ts: utils::ts(),
             module: MODULE.to_string(),
             data: Data::Log(Log {
-                level: log::Level::Info,
+                level: Info,
                 msg: format!("[{MODULE}] new"),
             }),
         };
@@ -33,12 +33,13 @@ impl Plugin {
         Self {
             name: MODULE.to_owned(),
             msg_tx,
+            scripts_filename: None,
         }
     }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -53,44 +54,57 @@ impl plugins_main::Plugin for Plugin {
             if let Some(action) = cmd_parts.get(2) {
                 match action.as_str() {
                     ACTION_INIT => {
-                        let path = Path::new(SCRIPTS_FILENAME);
-                        if let Ok(file) = File::open(path) {
-                            let reader = io::BufReader::new(file);
+                        if let Some(scripts_filename) = cmd_parts.get(3) {
+                            if let Ok(file) = File::open(scripts_filename) {
+                                let reader = io::BufReader::new(file);
 
-                            for line in reader.lines().map_while(Result::ok) {
-                                self.cmd(MODULE, line).await;
+                                for line in reader.lines().map_while(Result::ok) {
+                                    self.cmd(MODULE, line).await;
+                                }
+
+                                self.log(
+                                    MODULE,
+                                    Info,
+                                    format!("[{MODULE}] init script (`{scripts_filename}`)"),
+                                )
+                                .await;
+                            } else {
+                                self.log(
+                                    MODULE,
+                                    Warn,
+                                    format!(
+                                        "[{MODULE}] init script (`{scripts_filename}`) not found!"
+                                    ),
+                                )
+                                .await;
                             }
-                        } else {
-                            self.log(
-                                MODULE,
-                                log::Level::Warn,
-                                format!("[{MODULE}] init script (`{SCRIPTS_FILENAME}`) not found!"),
-                            )
-                            .await;
+                            self.scripts_filename = Some(scripts_filename.to_string());
                         }
                     }
                     ACTION_SHOW => {
-                        let path = Path::new(SCRIPTS_FILENAME);
-                        if let Ok(file) = File::open(path) {
-                            let reader = io::BufReader::new(file);
+                        if let Some(scripts_filename) = &self.scripts_filename {
+                            if let Ok(file) = File::open(scripts_filename) {
+                                let reader = io::BufReader::new(file);
 
-                            for line in reader.lines().map_while(Result::ok) {
-                                self.log(MODULE, log::Level::Info, format!("[{MODULE}] {line}"))
-                                    .await;
+                                for line in reader.lines().map_while(Result::ok) {
+                                    self.log(MODULE, Info, format!("[{MODULE}] {line}")).await;
+                                }
+                            } else {
+                                self.log(
+                                    MODULE,
+                                    Warn,
+                                    format!(
+                                        "[{MODULE}] init script (`{scripts_filename}`) not found!"
+                                    ),
+                                )
+                                .await;
                             }
-                        } else {
-                            self.log(
-                                MODULE,
-                                log::Level::Warn,
-                                format!("[{MODULE}] init script (`{SCRIPTS_FILENAME}`) not found!"),
-                            )
-                            .await;
                         }
                     }
                     _ => {
                         self.log(
                             MODULE,
-                            log::Level::Warn,
+                            Warn,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -102,7 +116,7 @@ impl plugins_main::Plugin for Plugin {
             } else {
                 self.log(
                     MODULE,
-                    log::Level::Warn,
+                    Warn,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;

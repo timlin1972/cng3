@@ -1,0 +1,38 @@
+# for GUI mode
+p panels init
+
+# - command
+p panels create command cli 0 0 80 3
+p cli init gui command
+
+# - log
+p panels create log log 0 3 80 30
+p log gui log
+
+# mqtt
+p panels create mqtt mqtt 80 0 70 33
+p mqtt init gui mqtt
+
+# - infos
+p infos gui infos
+p panels create infos infos 0 33 150 15
+
+# - nas
+p nas init cng3_pi5
+#          |_ nas_server
+
+# - monitor
+p monitor init
+
+# Help
+# p panels create infos infos 0 33 150 15
+#                 |     |     | |  |   |_ y_height
+#                 |     |     | |  |_ x_width
+#                 |     |     | |_ y
+#                 |     |     |_ x
+#                 |     plugin_name
+#                 |_ title
+#
+# p log gui log
+#       |   |_ gui_panel
+#       |_ gui mode

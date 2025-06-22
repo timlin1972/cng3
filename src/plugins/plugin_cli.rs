@@ -1,24 +1,18 @@
 use std::io::Write;
 
 use async_trait::async_trait;
-use log::Level::Warn;
+use log::Level::{Info, Warn};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::time::{Duration, sleep};
 
-use crate::messages::{ACTION_INIT, Cmd, Data, Log, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_INIT, Cmd, Data, Log, Msg};
 use crate::plugins::plugins_main;
-use crate::utils;
+use crate::utils::{self, Mode};
 
 const MODULE: &str = "cli";
-
-#[derive(PartialEq, Debug)]
-enum Mode {
-    ModeCli,
-    ModeGui,
-}
 
 fn prompt() {
     print!("{} > ", utils::ts_str(utils::ts()));
@@ -108,17 +102,6 @@ async fn start_input_loop_gui(
         }
     });
 
-    async fn update_output(msg_tx: &Sender<Msg>, gui_panel: &str, output: &str) {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Cmd(Cmd {
-                cmd: format!("p panels output {gui_panel} '> {output}'"),
-            }),
-        };
-        let _ = msg_tx.send(msg).await;
-    }
-
     loop {
         tokio::select! {
             Some(key) = input_rx.recv() => {
@@ -132,6 +115,7 @@ async fn start_input_loop_gui(
                         KeyCode::Char('a') => Some("size -x"),
                         KeyCode::Char('s') => Some("size +y"),
                         KeyCode::Char('w') => Some("size -y"),
+                        KeyCode::Char('c') => Some("output_clear"),
                         _ => None
                     };
                     if let Some(action) = action {
@@ -155,12 +139,12 @@ async fn start_input_loop_gui(
                         KeyCode::Char(c) => {
                             output.push(c);
 
-                            update_output(&msg_tx, &gui_panel, &output).await;
+                            utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Backspace => {
                             output.pop();
 
-                            update_output(&msg_tx, &gui_panel, &output).await;
+                            utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Enter => {
                             let msg = Msg {
@@ -172,7 +156,23 @@ async fn start_input_loop_gui(
 
                             output.clear();
 
-                            update_output(&msg_tx, &gui_panel, &output).await;
+                            utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
+                        }
+                        KeyCode::Left => {
+                            let msg = Msg {
+                                ts: utils::ts(),
+                                module: MODULE.to_string(),
+                                data: Data::Cmd(Cmd { cmd: format!("p panels {ACTION_ARROW} left") }),
+                            };
+                            let _ = msg_tx.send(msg).await;
+                        }
+                        KeyCode::Right => {
+                            let msg = Msg {
+                                ts: utils::ts(),
+                                module: MODULE.to_string(),
+                                data: Data::Cmd(Cmd { cmd: format!("p panels {ACTION_ARROW} right") }),
+                            };
+                            let _ = msg_tx.send(msg).await;
                         }
                         _ => {}
                     }
@@ -192,7 +192,7 @@ async fn start_input_loop_gui(
 }
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     name: String,
     msg_tx: Sender<Msg>,
     shutdown_tx: broadcast::Sender<()>,
@@ -201,7 +201,7 @@ pub struct Plugin {
     gui_panel: String,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
         let msg = Msg {
             ts: utils::ts(),
@@ -225,7 +225,7 @@ impl Plugin {
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -241,6 +241,7 @@ impl plugins_main::Plugin for Plugin {
                 match action.as_str() {
                     ACTION_INIT => match mode.as_str() {
                         "gui" => {
+                            // avoid re-entry
                             if self.started && self.mode == Mode::ModeGui {
                                 self.log(
                                     MODULE,
@@ -250,20 +251,20 @@ impl plugins_main::Plugin for Plugin {
                                 .await;
                                 return;
                             }
+
                             if let Some(gui_panel) = cmd_parts.get(4) {
                                 self.started = true;
                                 self.mode = Mode::ModeGui;
                                 self.gui_panel = gui_panel.to_string();
 
                                 // update prompt
-                                let msg = Msg {
-                                    ts: utils::ts(),
-                                    module: MODULE.to_string(),
-                                    data: Data::Cmd(Cmd {
-                                        cmd: format!("p panels output {gui_panel} '> '"),
-                                    }),
-                                };
-                                let _ = self.msg_tx.send(msg).await;
+                                utils::output_update_gui_simple(
+                                    MODULE,
+                                    &self.msg_tx,
+                                    &self.gui_panel,
+                                    ">".to_string(),
+                                )
+                                .await;
 
                                 let shutdown_rx = self.shutdown_tx.subscribe();
                                 tokio::spawn(start_input_loop_gui(
@@ -271,9 +272,17 @@ impl plugins_main::Plugin for Plugin {
                                     shutdown_rx,
                                     self.gui_panel.clone(),
                                 ));
+
+                                self.log(
+                                    MODULE,
+                                    Info,
+                                    format!("[{MODULE}] init gui mode (panel: `{gui_panel}`)"),
+                                )
+                                .await;
                             }
                         }
                         "cli" => {
+                            // avoid re-entry
                             if self.started && self.mode == Mode::ModeCli {
                                 self.log(
                                     MODULE,
@@ -288,6 +297,9 @@ impl plugins_main::Plugin for Plugin {
 
                             let shutdown_rx = self.shutdown_tx.subscribe();
                             tokio::spawn(start_input_loop_cli(self.msg_tx.clone(), shutdown_rx));
+
+                            self.log(MODULE, Info, format!("[{MODULE}] init cli mode"))
+                                .await;
                         }
                         _ => {
                             self.log(

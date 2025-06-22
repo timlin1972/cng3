@@ -1,49 +1,52 @@
+use log::Level::Info;
 use tokio::sync::broadcast;
+use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::messages::{Cmd, Data, Log, Messages, Msg};
+use crate::messages::{ACTION_INIT, Cmd, Data, Log, Messages, Msg};
 use crate::utils;
 
 const MODULE: &str = "app";
 
 pub struct App {
     msgs: Messages,
+    scripts_filename: String,
 }
 
 impl App {
-    pub async fn new(shutdown_tx: broadcast::Sender<()>) -> Self {
-        let myself = Self {
-            msgs: Messages::new(shutdown_tx).await,
+    pub async fn new(
+        msg_tx: Sender<Msg>,
+        msg_rx: Receiver<Msg>,
+        shutdown_notify: broadcast::Sender<()>,
+        scripts_filename: String,
+    ) -> Self {
+        let app = Self {
+            msgs: Messages::new(msg_tx, msg_rx, shutdown_notify).await,
+            scripts_filename,
         };
 
-        myself.info(format!("[{MODULE}] new")).await;
-
-        myself
-    }
-
-    async fn log(&self, level: log::Level, msg: String) {
+        // log
         let msg = Msg {
             ts: utils::ts(),
             module: MODULE.to_string(),
-            data: Data::Log(Log { level, msg }),
+            data: Data::Log(Log {
+                level: Info,
+                msg: format!("[{MODULE}] new"),
+            }),
         };
-        self.msgs.send(msg).await;
+        app.msgs.send(msg).await;
+
+        app
     }
 
-    async fn info(&self, msg: String) {
-        self.log(log::Level::Info, msg).await;
-    }
-
-    async fn cmd(&self, cmd: String) {
+    pub async fn run(&self) -> anyhow::Result<()> {
         let msg = Msg {
             ts: utils::ts(),
             module: MODULE.to_string(),
-            data: Data::Cmd(Cmd { cmd }),
+            data: Data::Cmd(Cmd {
+                cmd: format!("p scripts {ACTION_INIT} {}", self.scripts_filename),
+            }),
         };
         self.msgs.send(msg).await;
-    }
-
-    pub async fn run(&mut self) -> std::io::Result<()> {
-        self.cmd("p scripts init".to_string()).await;
 
         Ok(())
     }

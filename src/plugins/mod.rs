@@ -1,5 +1,10 @@
 pub mod plugin_cli;
+pub mod plugin_devices;
+pub mod plugin_infos;
 pub mod plugin_log;
+pub mod plugin_monitor;
+pub mod plugin_mqtt;
+pub mod plugin_nas;
 pub mod plugin_panels;
 pub mod plugin_scripts;
 pub mod plugin_system;
