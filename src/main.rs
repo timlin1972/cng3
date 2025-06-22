@@ -1,6 +1,7 @@
 use tokio::sync::broadcast;
 
 mod app;
+mod cfg;
 mod messages;
 mod plugins;
 mod utils;

@@ -394,7 +394,10 @@ dependencies = [
  "async-trait",
  "chrono",
  "log",
+ "once_cell",
  "ratatui",
+ "serde",
+ "serde_json",
  "shell-words",
  "tokio",
 ]
