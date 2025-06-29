@@ -7,7 +7,10 @@ use tokio::{
     time::{Duration, sleep},
 };
 
-use crate::messages::{ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, Cmd, Data, Log, Msg};
+use crate::messages::{
+    ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP, ACTION_TEMPERATURE,
+    ACTION_VERSION, Cmd, Data, Log, Msg,
+};
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
 
@@ -74,21 +77,28 @@ impl PluginUnit {
     }
 
     async fn handle_cmd_show(&mut self) {
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!("[{MODULE}] Version: v{}", self.system_info.version),
         )
         .await;
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!(
                 "[{MODULE}] Tailscale IP: {}",
                 self.system_info
                     .tailscale_ip
                     .clone()
                     .unwrap_or("n/a".to_string())
+            ),
+        )
+        .await;
+
+        self.info(
+            MODULE,
+            format!(
+                "[{MODULE}] Temperature: {}",
+                utils::temperature_str(Some(get_temperature()))
             ),
         )
         .await;
@@ -157,7 +167,7 @@ async fn update_system(msg_tx: &Sender<Msg>, system_info: &SystemInfo) {
         module: MODULE.to_string(),
         data: Data::Cmd(Cmd {
             cmd: format!(
-                "p mqtt {ACTION_PUBLISH} false version '{}'",
+                "p mqtt {ACTION_PUBLISH} false {ACTION_VERSION} '{}'",
                 system_info.version
             ),
         }),
@@ -170,7 +180,7 @@ async fn update_system(msg_tx: &Sender<Msg>, system_info: &SystemInfo) {
         module: MODULE.to_string(),
         data: Data::Cmd(Cmd {
             cmd: format!(
-                "p mqtt {ACTION_PUBLISH} false tailscale_ip '{}'",
+                "p mqtt {ACTION_PUBLISH} false {ACTION_TAILSCALE_IP} '{}'",
                 system_info
                     .tailscale_ip
                     .clone()
@@ -179,4 +189,26 @@ async fn update_system(msg_tx: &Sender<Msg>, system_info: &SystemInfo) {
         }),
     };
     let _ = msg_tx.send(msg).await;
+
+    // temperature
+    let temperature = get_temperature();
+    let msg = Msg {
+        ts: utils::ts(),
+        module: MODULE.to_string(),
+        data: Data::Cmd(Cmd {
+            cmd: format!("p mqtt {ACTION_PUBLISH} false {ACTION_TEMPERATURE} '{temperature}'",),
+        }),
+    };
+    let _ = msg_tx.send(msg).await;
+}
+
+fn get_temperature() -> f32 {
+    let components = sysinfo::Components::new_with_refreshed_list();
+    for component in &components {
+        if component.label().to_ascii_lowercase().contains("cpu") {
+            return component.temperature().unwrap_or(0.0);
+        }
+    }
+
+    0.0
 }

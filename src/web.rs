@@ -18,6 +18,7 @@ use crate::messages::{ACTION_NAS_STATE, Cmd, Data, Log, Msg};
 use crate::utils::{self, FileList};
 
 const MODULE: &str = "web";
+const MAX_SIZE: usize = 50 * 1024 * 1024; // 50MB
 
 #[get("/")]
 async fn hello() -> impl Responder {
@@ -162,6 +163,10 @@ struct DownloadData {
 
 #[derive(Serialize)]
 struct DownloadResponse {
+    data: DownloadResponseData,
+}
+#[derive(Serialize)]
+struct DownloadResponseData {
     filename: String,
     content: String,
     mtime: String,
@@ -188,12 +193,14 @@ async fn download(
 
             let encoded = general_purpose::STANDARD.encode(&bytes);
 
-            info(&msg_tx, format!("[{MODULE}]  API: GET `{filename}`")).await;
+            info(&msg_tx, format!("[{MODULE}] API: GET `{filename}`")).await;
 
             HttpResponse::Ok().json(DownloadResponse {
-                filename: filename.clone(),
-                content: encoded,
-                mtime,
+                data: DownloadResponseData {
+                    filename: filename.clone(),
+                    content: encoded,
+                    mtime,
+                },
             })
         }
         Err(_) => HttpResponse::NotFound().json(json!({
@@ -223,6 +230,8 @@ impl Web {
         let server = HttpServer::new(move || {
             App::new()
                 .app_data(web::Data::new(msg_tx_clone.clone()))
+                .app_data(web::PayloadConfig::new(MAX_SIZE))
+                .app_data(web::JsonConfig::default().limit(MAX_SIZE))
                 .service(hello)
                 .service(download)
                 .service(upload)
@@ -267,7 +276,10 @@ async fn warn(msg_tx: &Sender<Msg>, msg: String) {
 
 fn is_valid_filename(path: &str) -> bool {
     let path = Path::new(path);
-    path.components()
-        .all(|c| matches!(c, std::path::Component::Normal(_)))
-        && !path.is_absolute()
+    path.components().all(|c| {
+        matches!(
+            c,
+            std::path::Component::Normal(_) | std::path::Component::CurDir
+        )
+    }) && !path.is_absolute()
 }

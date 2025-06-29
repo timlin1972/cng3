@@ -405,7 +405,7 @@ async fn process_event_publish(
                     mode,
                     gui_panel,
                     Info,
-                    format!("[{MODULE}] <- pub::{key} {name} {payload}",),
+                    format!("[{MODULE}] <- pub::{key} {name} {payload}"),
                 )
                 .await;
 
@@ -425,7 +425,7 @@ async fn process_event_publish(
                     mode,
                     gui_panel,
                     Warn,
-                    format!("[{MODULE}] <- pub::{key} {name} {payload}",),
+                    format!("[{MODULE}] <- pub::{key} {name} {payload}"),
                 )
                 .await;
             }

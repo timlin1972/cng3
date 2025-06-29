@@ -4,7 +4,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::messages::{
     ACTION_DEVICES, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP,
-    ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
+    ACTION_TEMPERATURE, ACTION_VERSION, Data, Log, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{self, DevInfo};
@@ -83,15 +83,12 @@ impl PluginUnit {
             .await;
 
             // temperature
-            let temperature = if let Some(t) = device.temperature {
-                format!("{:.1}°C", t)
-            } else {
-                "n/a".to_owned()
-            };
-
             self.info(
                 MODULE,
-                format!("[{MODULE}]     Temperature: {temperature}",),
+                format!(
+                    "[{MODULE}]     Temperature: {}",
+                    utils::temperature_str(device.temperature)
+                ),
             )
             .await;
         }
@@ -136,36 +133,23 @@ impl PluginUnit {
 
                 // someone onboard, publish immediately
                 if onboard {
-                    self.send(Msg {
-                        ts,
-                        module: MODULE.to_string(),
-                        data: Data::Cmd(Cmd {
-                            cmd: format!("p system {ACTION_PUBLISH}"),
-                        }),
-                    })
-                    .await;
+                    self.cmd(MODULE, format!("p system {ACTION_PUBLISH}")).await;
                 }
             }
 
             // update infos
-            let msg = Msg {
-                ts,
-                module: MODULE.to_string(),
-                data: Data::Cmd(Cmd {
-                    cmd: format!("p infos {ACTION_DEVICES} onboard {name} {onbard_str}"),
-                }),
-            };
-            let _ = self.msg_tx.send(msg).await;
+            self.cmd(
+                MODULE,
+                format!("p infos {ACTION_DEVICES} onboard {name} {onbard_str}"),
+            )
+            .await;
 
             // update nas
-            let msg = Msg {
-                ts,
-                module: MODULE.to_string(),
-                data: Data::Cmd(Cmd {
-                    cmd: format!("p nas {ACTION_DEVICES} onboard {name} {onbard_str}"),
-                }),
-            };
-            let _ = self.msg_tx.send(msg).await;
+            self.cmd(
+                MODULE,
+                format!("p nas {ACTION_DEVICES} onboard {name} {onbard_str}"),
+            )
+            .await;
         }
     }
 
@@ -178,14 +162,11 @@ impl PluginUnit {
                 device.version = Some(version.to_string());
 
                 // update infos
-                let msg = Msg {
-                    ts,
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!("p infos {ACTION_DEVICES} version {name} {version}"),
-                    }),
-                };
-                let _ = self.msg_tx.send(msg).await;
+                self.cmd(
+                    MODULE,
+                    format!("p infos {ACTION_DEVICES} version {name} {version}"),
+                )
+                .await;
             }
         }
     }
@@ -199,28 +180,18 @@ impl PluginUnit {
                 device.tailscale_ip = Some(tailscale_ip.to_string());
 
                 // update infos
-                let msg = Msg {
-                    ts,
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!(
-                            "p infos {ACTION_DEVICES} {ACTION_TAILSCALE_IP} {name} {tailscale_ip}"
-                        ),
-                    }),
-                };
-                let _ = self.msg_tx.send(msg).await;
+                self.cmd(
+                    MODULE,
+                    format!("p infos {ACTION_DEVICES} {ACTION_TAILSCALE_IP} {name} {tailscale_ip}"),
+                )
+                .await;
 
                 // update nas
-                let msg = Msg {
-                    ts,
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!(
-                            "p nas {ACTION_DEVICES} {ACTION_TAILSCALE_IP} {name} {tailscale_ip}"
-                        ),
-                    }),
-                };
-                let _ = self.msg_tx.send(msg).await;
+                self.cmd(
+                    MODULE,
+                    format!("p nas {ACTION_DEVICES} {ACTION_TAILSCALE_IP} {name} {tailscale_ip}"),
+                )
+                .await;
             }
         }
     }
@@ -234,16 +205,11 @@ impl PluginUnit {
                 device.temperature = Some(temperature.parse::<f32>().unwrap());
 
                 // update infos
-                let msg = Msg {
-                    ts,
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!(
-                            "p infos {ACTION_DEVICES} {ACTION_TEMPERATURE} {name} {temperature}"
-                        ),
-                    }),
-                };
-                let _ = self.msg_tx.send(msg).await;
+                self.cmd(
+                    MODULE,
+                    format!("p infos {ACTION_DEVICES} {ACTION_TEMPERATURE} {name} {temperature}"),
+                )
+                .await;
             }
         }
     }

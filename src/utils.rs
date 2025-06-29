@@ -137,6 +137,14 @@ pub fn onboard_str(onboard: bool) -> &'static str {
     if onboard { "on" } else { "off" }
 }
 
+pub fn temperature_str(temperature: Option<f32>) -> String {
+    if let Some(t) = temperature {
+        format!("{:.1}°C", t)
+    } else {
+        "n/a".to_owned()
+    }
+}
+
 // NasInfo
 #[derive(Debug, Clone, PartialEq)]
 pub enum NasState {

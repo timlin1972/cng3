@@ -65,16 +65,17 @@ impl PluginUnit {
         match self.page_idx {
             0 => {
                 output = format!(
-                    "{:<12} {:<7} {:<10} {:16}",
-                    "Name", "Onboard", "Version", "Tailscale IP"
+                    "{:<12} {:<7} {:<10} {:16} {:<7}",
+                    "Name", "Onboard", "Version", "Tailscale IP", "Temper",
                 );
                 for device in &self.devices {
                     output += &format!(
-                        "\n{:<12} {:<7} {:<10} {:16}",
+                        "\n{:<12} {:<7} {:<10} {:16} {:<7}",
                         device.name,
                         utils::onboard_str(device.onboard),
                         device.version.clone().unwrap_or("n/a".to_string()),
-                        device.tailscale_ip.clone().unwrap_or("n/a".to_string())
+                        device.tailscale_ip.clone().unwrap_or("n/a".to_string()),
+                        utils::temperature_str(device.temperature)
                     );
                 }
             }
