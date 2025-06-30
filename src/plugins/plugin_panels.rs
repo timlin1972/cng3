@@ -12,7 +12,7 @@ use ratatui::{
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_ARROW, ACTION_CREATE, ACTION_INIT, ACTION_SHOW, Cmd, Data, Log, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_CREATE, ACTION_INIT, ACTION_SHOW, Data, Log, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
 
@@ -91,7 +91,7 @@ impl PluginUnit {
             ratatui::restore();
         });
 
-        self.log(MODULE, Info, format!("[{MODULE}] init")).await;
+        self.info(MODULE, format!("[{MODULE}] init")).await;
     }
 
     fn handle_cmd_tab(&mut self) {
@@ -169,18 +169,16 @@ impl PluginUnit {
         }
     }
 
-    async fn handle_cmd_page(&mut self, cmd_parts: &[String]) {
-        if let Some(left_right) = cmd_parts.get(3) {
+    async fn handle_cmd_arrow(&mut self, cmd_parts: &[String]) {
+        if let Some(arrow) = cmd_parts.get(3) {
             for (idx, panel) in self.panels.iter_mut().enumerate() {
                 if idx == self.active_panel {
-                    let msg = Msg {
-                        ts: utils::ts(),
-                        module: MODULE.to_string(),
-                        data: Data::Cmd(Cmd {
-                            cmd: format!("p {} {ACTION_ARROW} {left_right}", panel.plugin_name),
-                        }),
-                    };
-                    let _ = self.msg_tx.send(msg).await;
+                    let panel_plugin_name = panel.plugin_name.clone();
+                    self.cmd(
+                        MODULE,
+                        format!("p {panel_plugin_name} {ACTION_ARROW} {arrow}"),
+                    )
+                    .await;
                     break;
                 }
             }
@@ -200,19 +198,17 @@ impl PluginUnit {
     }
 
     async fn handle_cmd_show(&mut self) {
-        self.log(MODULE, Info, format!("[{MODULE}] show")).await;
-        self.log(MODULE, Info, format!("[{MODULE}] inited: {}", self.inited))
+        self.info(MODULE, format!("[{MODULE}] show")).await;
+        self.info(MODULE, format!("[{MODULE}] inited: {}", self.inited))
             .await;
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!("{:<12} {:<12} {:12}", "Title", "Subtitle", "Plugin"),
         )
         .await;
         for panel in &self.panels {
-            self.log(
+            self.info(
                 MODULE,
-                Info,
                 format!(
                     "{:<12} {:<12} {:12}",
                     panel.title, panel.sub_title, panel.plugin_name
@@ -243,7 +239,7 @@ impl plugins_main::Plugin for PluginUnit {
                     "tab" => self.handle_cmd_tab(),
                     "size" => self.handle_cmd_size(&cmd_parts),
                     "location" => self.handle_cmd_location(&cmd_parts),
-                    ACTION_ARROW => self.handle_cmd_page(&cmd_parts).await,
+                    ACTION_ARROW => self.handle_cmd_arrow(&cmd_parts).await,
                     "sub_title" => self.handle_cmd_sub_title(&cmd_parts).await,
                     "output_clear" => {
                         if let Some(mut terminal) = self.terminal.take() {
@@ -326,9 +322,8 @@ impl plugins_main::Plugin for PluginUnit {
                                 let _ = terminal.draw(|frame| self.draw(frame));
                                 self.terminal = Some(terminal);
                             } else {
-                                self.log(
+                                self.info(
                                     MODULE,
-                                    Info,
                                     format!(
                                         "[{MODULE}] Missing title/plugin_name/x/y/x_width/y_height for cmd `{}`.",
                                         cmd.cmd
@@ -339,9 +334,8 @@ impl plugins_main::Plugin for PluginUnit {
                         }
                     }
                     _ => {
-                        self.log(
+                        self.info(
                             MODULE,
-                            Info,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -351,9 +345,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.info(
                     MODULE,
-                    Info,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;

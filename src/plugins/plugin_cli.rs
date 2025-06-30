@@ -1,11 +1,13 @@
 use std::io::Write;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use log::Level::{Info, Warn};
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio::sync::Mutex;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::mpsc::Sender;
+use tokio::task;
 use tokio::time::{Duration, sleep};
 
 use crate::messages::{ACTION_ARROW, ACTION_INIT, Cmd, Data, Log, Msg};
@@ -22,7 +24,7 @@ fn prompt() {
         .expect("Failed to flush");
 }
 
-async fn start_input_loop_cli(msg_tx: mpsc::Sender<Msg>, mut shutdown_rx: broadcast::Receiver<()>) {
+async fn start_input_loop_cli(msg_tx: Sender<Msg>, mut shutdown_rx: broadcast::Receiver<()>) {
     let stdin = io::stdin();
     let reader = BufReader::new(stdin);
     let mut lines = reader.lines();
@@ -34,14 +36,7 @@ async fn start_input_loop_cli(msg_tx: mpsc::Sender<Msg>, mut shutdown_rx: broadc
             maybe_line = lines.next_line() => {
                 match maybe_line {
                     Ok(Some(line)) => {
-                        let msg = Msg {
-                            ts: utils::ts(),
-                            module: MODULE.to_string(),
-                            data: Data::Cmd(Cmd { cmd: line }),
-                        };
-
-                        let _ = msg_tx.send(msg).await;
-
+                        cmd(&msg_tx, line).await;
                         sleep(Duration::from_secs(1)).await;
                         prompt();
                     }
@@ -67,12 +62,13 @@ async fn start_input_loop_cli(msg_tx: mpsc::Sender<Msg>, mut shutdown_rx: broadc
 }
 
 async fn start_input_loop_gui(
-    msg_tx: mpsc::Sender<Msg>,
+    output: Arc<Mutex<String>>,
+    history: Arc<Mutex<Vec<String>>>,
+    history_index: Arc<Mutex<usize>>,
+    msg_tx: Sender<Msg>,
     mut shutdown_rx: broadcast::Receiver<()>,
     gui_panel: String,
 ) {
-    let mut output = String::new();
-
     // 建立 channel 傳送 key event（spawn_blocking 到 async）
     let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<KeyEvent>(32);
     use std::sync::{
@@ -83,7 +79,7 @@ async fn start_input_loop_gui(
 
     let shutdown_flag_clone = shutdown_flag.clone();
 
-    let input_task = tokio::task::spawn_blocking(move || {
+    let input_task = task::spawn_blocking(move || {
         loop {
             // 非同步 poll，避免卡住
             if event::poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
@@ -119,68 +115,48 @@ async fn start_input_loop_gui(
                         _ => None
                     };
                     if let Some(action) = action {
-                        let msg = Msg {
-                            ts: utils::ts(),
-                            module: MODULE.to_string(),
-                            data: Data::Cmd(Cmd { cmd: format!("p panels {action}") }),
-                        };
-                        let _ = msg_tx.send(msg).await;
+                        cmd(&msg_tx, format!("p panels {action}")).await;
                     }
                 } else {
                     match key.code {
-                        KeyCode::Tab => {
-                            let msg = Msg {
-                                ts: utils::ts(),
-                                module: MODULE.to_string(),
-                                data: Data::Cmd(Cmd { cmd: "p panels tab".to_string() }),
-                            };
-                            let _ = msg_tx.send(msg).await;
-                        }
+                        KeyCode::Tab => cmd(&msg_tx, "p panels tab".to_string()).await,
                         KeyCode::Char(c) => {
+                            let mut output = output.lock().await;
                             output.push(c);
-
                             utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Backspace => {
+                            let mut output = output.lock().await;
                             output.pop();
-
                             utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Enter => {
-                            let msg = Msg {
-                                ts: utils::ts(),
-                                module: MODULE.to_string(),
-                                data: Data::Cmd(Cmd { cmd: output.clone() }),
-                            };
-                            let _ = msg_tx.send(msg).await;
+                            let mut output = output.lock().await;
+                            let mut history = history.lock().await;
+                            let mut history_index = history_index.lock().await;
 
+                            // ignore if the input is as the same as the last one
+                            if history.is_empty()
+                                || *history.last().unwrap() != *output
+                            {
+                                history.push(output.clone());
+                                *history_index = history.len();
+                            }
+
+                            cmd(&msg_tx, output.clone()).await;
                             output.clear();
-
                             utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
-                        KeyCode::Left => {
-                            let msg = Msg {
-                                ts: utils::ts(),
-                                module: MODULE.to_string(),
-                                data: Data::Cmd(Cmd { cmd: format!("p panels {ACTION_ARROW} left") }),
-                            };
-                            let _ = msg_tx.send(msg).await;
-                        }
-                        KeyCode::Right => {
-                            let msg = Msg {
-                                ts: utils::ts(),
-                                module: MODULE.to_string(),
-                                data: Data::Cmd(Cmd { cmd: format!("p panels {ACTION_ARROW} right") }),
-                            };
-                            let _ = msg_tx.send(msg).await;
-                        }
+                        KeyCode::Left => cmd(&msg_tx, format!("p panels {ACTION_ARROW} left")).await,
+                        KeyCode::Right => cmd(&msg_tx, format!("p panels {ACTION_ARROW} right")).await,
+                        KeyCode::Up => cmd(&msg_tx, format!("p panels {ACTION_ARROW} up")).await,
+                        KeyCode::Down => cmd(&msg_tx, format!("p panels {ACTION_ARROW} down")).await,
                         _ => {}
                     }
                 }
             }
 
             _ = shutdown_rx.recv() => {
-                // 通知 blocking thread 結束
                 shutdown_flag_clone.store(true, Ordering::Relaxed);
                 break;
             }
@@ -199,6 +175,9 @@ pub struct PluginUnit {
     mode: Mode,
     started: bool,
     gui_panel: String,
+    output: Arc<Mutex<String>>,
+    history: Arc<Mutex<Vec<String>>>,
+    history_index: Arc<Mutex<usize>>,
 }
 
 impl PluginUnit {
@@ -220,6 +199,57 @@ impl PluginUnit {
             mode: Mode::ModeGui,
             started: false,
             gui_panel: String::new(),
+            output: Arc::new(Mutex::new(String::new())),
+            history: Arc::new(Mutex::new(vec![])),
+            history_index: Arc::new(Mutex::new(0)),
+        }
+    }
+
+    async fn handle_cmd_arrow(&mut self, cmd_parts: &[String]) {
+        if let Some(arrow) = cmd_parts.get(3) {
+            match arrow.as_str() {
+                "up" => {
+                    let mut output = self.output.lock().await;
+                    let history = self.history.lock().await;
+                    let mut history_index = self.history_index.lock().await;
+
+                    if *history_index > 0 {
+                        *history_index -= 1;
+                        *output = history[*history_index].clone();
+                    }
+
+                    utils::output_update_gui_simple(
+                        MODULE,
+                        &self.msg_tx,
+                        &self.gui_panel,
+                        format!("> {output}"),
+                    )
+                    .await;
+                }
+                "down" => {
+                    let mut output = self.output.lock().await;
+                    let history = self.history.lock().await;
+                    let mut history_index = self.history_index.lock().await;
+
+                    if *history_index < history.len() {
+                        *history_index += 1;
+                        if *history_index < history.len() {
+                            *output = history[*history_index].clone();
+                        } else {
+                            output.clear();
+                        }
+                    }
+
+                    utils::output_update_gui_simple(
+                        MODULE,
+                        &self.msg_tx,
+                        &self.gui_panel,
+                        format!("> {output}"),
+                    )
+                    .await;
+                }
+                _ => (),
+            }
         }
     }
 }
@@ -243,9 +273,8 @@ impl plugins_main::Plugin for PluginUnit {
                         "gui" => {
                             // avoid re-entry
                             if self.started && self.mode == Mode::ModeGui {
-                                self.log(
+                                self.warn(
                                     MODULE,
-                                    Warn,
                                     format!("[{MODULE}] Started and GUI mode already. Ignore."),
                                 )
                                 .await;
@@ -267,15 +296,20 @@ impl plugins_main::Plugin for PluginUnit {
                                 .await;
 
                                 let shutdown_rx = self.shutdown_tx.subscribe();
+                                let output_clone = Arc::clone(&self.output);
+                                let history_clone = Arc::clone(&self.history);
+                                let history_index_clone = Arc::clone(&self.history_index);
                                 tokio::spawn(start_input_loop_gui(
+                                    output_clone,
+                                    history_clone,
+                                    history_index_clone,
                                     self.msg_tx.clone(),
                                     shutdown_rx,
                                     self.gui_panel.clone(),
                                 ));
 
-                                self.log(
+                                self.info(
                                     MODULE,
-                                    Info,
                                     format!("[{MODULE}] init gui mode (panel: `{gui_panel}`)"),
                                 )
                                 .await;
@@ -284,9 +318,8 @@ impl plugins_main::Plugin for PluginUnit {
                         "cli" => {
                             // avoid re-entry
                             if self.started && self.mode == Mode::ModeCli {
-                                self.log(
+                                self.warn(
                                     MODULE,
-                                    Warn,
                                     format!("[{MODULE}] Started and CLI mode already. Ignore."),
                                 )
                                 .await;
@@ -298,22 +331,20 @@ impl plugins_main::Plugin for PluginUnit {
                             let shutdown_rx = self.shutdown_tx.subscribe();
                             tokio::spawn(start_input_loop_cli(self.msg_tx.clone(), shutdown_rx));
 
-                            self.log(MODULE, Info, format!("[{MODULE}] init cli mode"))
-                                .await;
+                            self.info(MODULE, format!("[{MODULE}] init cli mode")).await;
                         }
                         _ => {
-                            self.log(
+                            self.warn(
                                 MODULE,
-                                log::Level::Warn,
                                 format!("[{MODULE}] Unknown mode ({mode}) for cmd `{}`.", cmd.cmd),
                             )
                             .await;
                         }
                     },
+                    ACTION_ARROW => self.handle_cmd_arrow(&cmd_parts).await,
                     _ => {
-                        self.log(
+                        self.warn(
                             MODULE,
-                            log::Level::Warn,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -323,13 +354,21 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.info(
                     MODULE,
-                    log::Level::Warn,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;
             }
         }
     }
+}
+
+async fn cmd(msg_tx: &Sender<Msg>, cmd: String) {
+    let msg = Msg {
+        ts: utils::ts(),
+        module: MODULE.to_string(),
+        data: Data::Cmd(Cmd { cmd }),
+    };
+    let _ = msg_tx.send(msg).await;
 }
