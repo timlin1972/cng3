@@ -7,6 +7,7 @@ use crate::utils;
 
 const MODULE: &str = "messages";
 
+pub const ACTION_APP_UPTIME: &str = "app_uptime";
 pub const ACTION_ARROW: &str = "arrow";
 pub const ACTION_CREATE: &str = "create";
 pub const ACTION_DEVICES: &str = "devices";

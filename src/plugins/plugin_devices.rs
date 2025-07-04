@@ -3,8 +3,8 @@ use log::Level::Info;
 use tokio::sync::mpsc::Sender;
 
 use crate::messages::{
-    ACTION_DEVICES, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP,
-    ACTION_TEMPERATURE, ACTION_VERSION, Data, Log, Msg,
+    ACTION_APP_UPTIME, ACTION_DEVICES, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW,
+    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Data, Log, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{self, DevInfo};
@@ -91,6 +91,16 @@ impl PluginUnit {
                 ),
             )
             .await;
+
+            // app uptime
+            self.info(
+                MODULE,
+                format!(
+                    "[{MODULE}]     App uptime: {}",
+                    utils::app_uptime_str(device.app_uptime)
+                ),
+            )
+            .await;
         }
     }
 
@@ -115,6 +125,7 @@ impl PluginUnit {
                         version: None,
                         tailscale_ip: None,
                         temperature: None,
+                        app_uptime: None,
                     };
                     self.devices.push(device_add.clone());
                     true
@@ -213,6 +224,24 @@ impl PluginUnit {
             }
         }
     }
+
+    async fn handle_cmd_app_uptime(&mut self, cmd_parts: &[String]) {
+        if let (Some(name), Some(app_uptime)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+            let ts = utils::ts();
+
+            if let Some(device) = self.devices.iter_mut().find(|device| device.name == *name) {
+                device.ts = ts;
+                device.app_uptime = Some(app_uptime.parse::<u64>().unwrap());
+
+                // update infos
+                self.cmd(
+                    MODULE,
+                    format!("p infos {ACTION_DEVICES} {ACTION_APP_UPTIME} {name} {app_uptime}"),
+                )
+                .await;
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -235,6 +264,7 @@ impl plugins_main::Plugin for PluginUnit {
                     ACTION_VERSION => self.handle_cmd_version(&cmd_parts).await,
                     ACTION_TAILSCALE_IP => self.handle_cmd_tailscale_ip(&cmd_parts).await,
                     ACTION_TEMPERATURE => self.handle_cmd_temperature(&cmd_parts).await,
+                    ACTION_APP_UPTIME => self.handle_cmd_app_uptime(&cmd_parts).await,
                     _ => {
                         self.warn(
                             MODULE,

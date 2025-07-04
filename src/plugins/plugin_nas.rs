@@ -145,9 +145,8 @@ impl PluginUnit {
                 let _ = msg_tx_clone.send(msg).await;
             });
 
-            self.log(
+            self.info(
                 MODULE,
-                Info,
                 format!("[{MODULE}] {}: Unknown IP, re-onboard.", self.nas_server),
             )
             .await;
@@ -182,9 +181,8 @@ impl PluginUnit {
             let result = json["data"]["result"].as_u64().unwrap();
 
             if result == 0 {
-                self.log(
+                self.info(
                     MODULE,
-                    Info,
                     format!("[{MODULE}] {}: Hash matched. Synced.", self.nas_server),
                 )
                 .await;
@@ -194,9 +192,8 @@ impl PluginUnit {
                 return;
             }
 
-            self.log(
+            self.info(
                 MODULE,
-                Info,
                 format!(
                     "[{MODULE}] {}: Hash mismatched. Start to sync.",
                     self.nas_server
@@ -237,9 +234,8 @@ impl PluginUnit {
 
                         let _ = utils::write_file(filename, content, mtime).await;
 
-                        self.log(
+                        self.info(
                             MODULE,
-                            Info,
                             format!("[{MODULE}] GET `{filename}` from {}", self.nas_server),
                         )
                         .await;
@@ -319,14 +315,8 @@ impl PluginUnit {
                         }
 
                         // update infos
-                        let msg = Msg {
-                            ts,
-                            module: MODULE.to_string(),
-                            data: Data::Cmd(Cmd {
-                                cmd: format!("p infos nas onboard {name} {onboard_str}"),
-                            }),
-                        };
-                        let _ = self.msg_tx.send(msg).await;
+                        self.cmd(MODULE, format!("p infos nas onboard {name} {onboard_str}"))
+                            .await;
                         self.update_infos_client_nas_state().await;
 
                         // handle_nas_event
@@ -382,20 +372,18 @@ impl PluginUnit {
     }
 
     async fn handle_cmd_show(&mut self) {
-        self.log(MODULE, Info, format!("Nas Server: {}", self.nas_server))
+        self.info(MODULE, format!("Nas Server: {}", self.nas_server))
             .await;
-        self.log(MODULE, Info, format!("Nas State: {:?}", self.nas_state))
+        self.info(MODULE, format!("Nas State: {:?}", self.nas_state))
             .await;
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!("{:<12} {:<7} {:<16}", "Name", "Onboard", "Tailscale IP"),
         )
         .await;
         for nas_info in &self.nas_infos {
-            self.log(
+            self.info(
                 MODULE,
-                Info,
                 format!(
                     "{:<12} {:<7} {:<16}",
                     nas_info.name,
@@ -421,17 +409,12 @@ impl PluginUnit {
                 }
 
                 // update infos
-                let msg = Msg {
-                    ts: utils::ts(),
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!(
-                            "p infos nas {ACTION_NAS_STATE} {name} {:?}",
-                            nas_info.nas_state
-                        ),
-                    }),
-                };
-                let _ = self.msg_tx.send(msg).await;
+                let nas_info_nas_state = nas_info.nas_state.clone();
+                self.cmd(
+                    MODULE,
+                    format!("p infos nas {ACTION_NAS_STATE} {name} {nas_info_nas_state:?}",),
+                )
+                .await;
             }
         }
     }
@@ -458,9 +441,8 @@ impl PluginUnit {
             .send()
             .await;
 
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!("[{MODULE}] PUT `{filename}` to {remote_name}"),
         )
         .await;
@@ -478,9 +460,8 @@ impl PluginUnit {
             .send()
             .await;
 
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!("[{MODULE}] REMOVE `{filename}` to {remote_name}"),
         )
         .await;
@@ -565,9 +546,8 @@ impl plugins_main::Plugin for PluginUnit {
                     ACTION_FILE_MODIFY => self.handle_cmd_file_modify(&cmd_parts).await,
                     ACTION_FILE_REMOVE => self.handle_cmd_file_remove(&cmd_parts).await,
                     _ => {
-                        self.log(
+                        self.info(
                             MODULE,
-                            Info,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -577,9 +557,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.info(
                     MODULE,
-                    Info,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;

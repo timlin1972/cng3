@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local};
-use sysinfo::Networks;
+use sysinfo::{Networks, System};
 use tokio::sync::mpsc::Sender;
 
 use crate::messages::{Cmd, Data, Log, Msg};
@@ -31,6 +31,22 @@ pub fn ts_str_full(ts: u64) -> String {
         .with_timezone(&Local);
 
     datetime_local.format("%Y-%m-%d %H:%M:%S %:z").to_string()
+}
+
+pub fn uptime() -> u64 {
+    System::uptime()
+}
+
+pub fn uptime_str(uptime: u64) -> String {
+    let mut uptime = uptime;
+    let days = uptime / 86400;
+    uptime -= days * 86400;
+    let hours = uptime / 3600;
+    uptime -= hours * 3600;
+    let minutes = uptime / 60;
+    let seconds = uptime % 60;
+
+    format!("{days}d {hours:02}:{minutes:02}:{seconds:02}")
 }
 
 // Mode
@@ -131,6 +147,7 @@ pub struct DevInfo {
     pub version: Option<String>,
     pub tailscale_ip: Option<String>,
     pub temperature: Option<f32>,
+    pub app_uptime: Option<u64>,
 }
 
 pub fn onboard_str(onboard: bool) -> &'static str {
@@ -140,6 +157,14 @@ pub fn onboard_str(onboard: bool) -> &'static str {
 pub fn temperature_str(temperature: Option<f32>) -> String {
     if let Some(t) = temperature {
         format!("{:.1}°C", t)
+    } else {
+        "n/a".to_owned()
+    }
+}
+
+pub fn app_uptime_str(app_uptime: Option<u64>) -> String {
+    if let Some(t) = app_uptime {
+        uptime_str(t)
     } else {
         "n/a".to_owned()
     }

@@ -1,10 +1,10 @@
 use async_trait::async_trait;
-use log::Level::{Info, Warn};
+use log::Level::Info;
 use tokio::sync::mpsc::Sender;
 
 use crate::cfg;
 use crate::messages::{
-    ACTION_ARROW, ACTION_DEVICES, ACTION_NAS_STATE, ACTION_ONBOARD, ACTION_SHOW,
+    ACTION_APP_UPTIME, ACTION_ARROW, ACTION_DEVICES, ACTION_NAS_STATE, ACTION_ONBOARD, ACTION_SHOW,
     ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
@@ -65,17 +65,18 @@ impl PluginUnit {
         match self.page_idx {
             0 => {
                 output = format!(
-                    "{:<12} {:<7} {:<10} {:16} {:<7}",
-                    "Name", "Onboard", "Version", "Tailscale IP", "Temper",
+                    "{:<12} {:<7} {:<10} {:16} {:<7} {:13}",
+                    "Name", "Onboard", "Version", "Tailscale IP", "Temper", "App uptime"
                 );
                 for device in &self.devices {
                     output += &format!(
-                        "\n{:<12} {:<7} {:<10} {:16} {:<7}",
+                        "\n{:<12} {:<7} {:<10} {:16} {:<7} {:13}",
                         device.name,
                         utils::onboard_str(device.onboard),
                         device.version.clone().unwrap_or("n/a".to_string()),
                         device.tailscale_ip.clone().unwrap_or("n/a".to_string()),
-                        utils::temperature_str(device.temperature)
+                        utils::temperature_str(device.temperature),
+                        utils::app_uptime_str(device.app_uptime),
                     );
                 }
             }
@@ -121,6 +122,7 @@ impl PluginUnit {
                                 version: None,
                                 tailscale_ip: None,
                                 temperature: None,
+                                app_uptime: None,
                             };
                             self.devices.push(device_add.clone());
                         }
@@ -153,6 +155,16 @@ impl PluginUnit {
                         {
                             device.ts = ts;
                             device.temperature = Some(temperature.parse::<f32>().unwrap());
+                        }
+                    }
+                }
+                ACTION_APP_UPTIME => {
+                    if let (Some(name), Some(app_uptime)) = (cmd_parts.get(4), cmd_parts.get(5)) {
+                        if let Some(device) =
+                            self.devices.iter_mut().find(|device| device.name == *name)
+                        {
+                            device.ts = ts;
+                            device.app_uptime = Some(app_uptime.parse::<u64>().unwrap());
                         }
                     }
                 }
@@ -223,18 +235,16 @@ impl PluginUnit {
                             _ => todo!(),
                         }
                     } else {
-                        self.log(
+                        self.warn(
                             MODULE,
-                            Warn,
                             format!("[{MODULE}] Missing {ACTION_NAS_STATE} or name/{ACTION_NAS_STATE} for cmd `{cmd_parts:?}`."),
                         )
                         .await;
                     }
                 }
                 _ => {
-                    self.log(
+                    self.warn(
                         MODULE,
-                        Warn,
                         format!("[{MODULE}] Unknown action ({action}) for cmd `{cmd_parts:?}`."),
                     )
                     .await
@@ -245,36 +255,36 @@ impl PluginUnit {
     }
 
     async fn handle_cmd_show(&mut self) {
-        self.log(
+        self.info(
             MODULE,
-            Info,
-            format!("{:<12} {:<7} {:16}", "Name", "Onboard", "Tailscale IP"),
+            format!(
+                "{:<12} {:<7} {:16} {:<13}",
+                "Name", "Onboard", "Tailscale IP", "App uptime"
+            ),
         )
         .await;
         for device in &self.devices {
-            self.log(
+            self.info(
                 MODULE,
-                Info,
                 format!(
-                    "{:<12} {:<7} {:16}",
+                    "{:<12} {:<7} {:16} {:<13}",
                     device.name,
                     utils::onboard_str(device.onboard),
-                    device.tailscale_ip.clone().unwrap_or("n/a".to_string())
+                    device.tailscale_ip.clone().unwrap_or("n/a".to_string()),
+                    utils::app_uptime_str(device.app_uptime)
                 ),
             )
             .await;
         }
 
-        self.log(
+        self.info(
             MODULE,
-            Info,
             format!("{:<12} {:<7} {:10}", "Name", "Onboard", "NAS State"),
         )
         .await;
         for nas_info in &self.nas_infos {
-            self.log(
+            self.info(
                 MODULE,
-                Info,
                 format!(
                     "{:<12} {:<7} {:10?}",
                     nas_info.name,
@@ -322,9 +332,8 @@ impl plugins_main::Plugin for PluginUnit {
                         self.panel_output_update().await;
                     }
                     _ => {
-                        self.log(
+                        self.warn(
                             MODULE,
-                            Info,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -334,9 +343,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.warn(
                     MODULE,
-                    Info,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;

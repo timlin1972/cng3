@@ -8,8 +8,8 @@ use tokio::{
 };
 
 use crate::messages::{
-    ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP, ACTION_TEMPERATURE,
-    ACTION_VERSION, Cmd, Data, Log, Msg,
+    ACTION_APP_UPTIME, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP,
+    ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
@@ -22,6 +22,7 @@ const PUBLISH_INTERVAL: u64 = 300;
 struct SystemInfo {
     version: String,
     tailscale_ip: Option<String>,
+    ts_start: u64,
 }
 
 #[derive(Debug)]
@@ -72,6 +73,7 @@ impl PluginUnit {
             system_info: SystemInfo {
                 version: VERSION.to_string(),
                 tailscale_ip: utils::get_tailscale_ip(),
+                ts_start: utils::uptime(),
             },
         }
     }
@@ -82,6 +84,7 @@ impl PluginUnit {
             format!("[{MODULE}] Version: v{}", self.system_info.version),
         )
         .await;
+
         self.info(
             MODULE,
             format!(
@@ -102,10 +105,67 @@ impl PluginUnit {
             ),
         )
         .await;
+
+        self.info(
+            MODULE,
+            format!(
+                "[{MODULE}] App uptime: {}",
+                utils::uptime_str(utils::uptime() - self.system_info.ts_start)
+            ),
+        )
+        .await;
     }
 
     async fn handle_cmd_publish(&mut self) {
-        update_system(&self.msg_tx, &self.system_info).await;
+        self.update_system().await;
+    }
+
+    async fn update_system(&mut self) {
+        // onboard
+        self.cmd(
+            MODULE,
+            format!("p mqtt {ACTION_PUBLISH} false {ACTION_ONBOARD} '1'"),
+        )
+        .await;
+
+        // version
+        self.cmd(
+            MODULE,
+            format!(
+                "p mqtt {ACTION_PUBLISH} false {ACTION_VERSION} '{}'",
+                self.system_info.version
+            ),
+        )
+        .await;
+
+        // tailscale_ip
+        self.cmd(
+            MODULE,
+            format!(
+                "p mqtt {ACTION_PUBLISH} false {ACTION_TAILSCALE_IP} '{}'",
+                self.system_info
+                    .tailscale_ip
+                    .clone()
+                    .unwrap_or("n/a".to_string())
+            ),
+        )
+        .await;
+
+        // temperature
+        let temperature = get_temperature();
+        self.cmd(
+            MODULE,
+            format!("p mqtt {ACTION_PUBLISH} false {ACTION_TEMPERATURE} '{temperature}'",),
+        )
+        .await;
+
+        // app uptime
+        let uptime = utils::uptime() - self.system_info.ts_start;
+        self.cmd(
+            MODULE,
+            format!("p mqtt {ACTION_PUBLISH} false {ACTION_APP_UPTIME} '{uptime}'",),
+        )
+        .await;
     }
 }
 
@@ -148,58 +208,6 @@ impl plugins_main::Plugin for PluginUnit {
             }
         }
     }
-}
-
-async fn update_system(msg_tx: &Sender<Msg>, system_info: &SystemInfo) {
-    // onboard
-    let msg = Msg {
-        ts: utils::ts(),
-        module: MODULE.to_string(),
-        data: Data::Cmd(Cmd {
-            cmd: format!("p mqtt {ACTION_PUBLISH} false {ACTION_ONBOARD} '1'"),
-        }),
-    };
-    let _ = msg_tx.send(msg).await;
-
-    // version
-    let msg = Msg {
-        ts: utils::ts(),
-        module: MODULE.to_string(),
-        data: Data::Cmd(Cmd {
-            cmd: format!(
-                "p mqtt {ACTION_PUBLISH} false {ACTION_VERSION} '{}'",
-                system_info.version
-            ),
-        }),
-    };
-    let _ = msg_tx.send(msg).await;
-
-    // tailscale_ip
-    let msg = Msg {
-        ts: utils::ts(),
-        module: MODULE.to_string(),
-        data: Data::Cmd(Cmd {
-            cmd: format!(
-                "p mqtt {ACTION_PUBLISH} false {ACTION_TAILSCALE_IP} '{}'",
-                system_info
-                    .tailscale_ip
-                    .clone()
-                    .unwrap_or("n/a".to_string())
-            ),
-        }),
-    };
-    let _ = msg_tx.send(msg).await;
-
-    // temperature
-    let temperature = get_temperature();
-    let msg = Msg {
-        ts: utils::ts(),
-        module: MODULE.to_string(),
-        data: Data::Cmd(Cmd {
-            cmd: format!("p mqtt {ACTION_PUBLISH} false {ACTION_TEMPERATURE} '{temperature}'",),
-        }),
-    };
-    let _ = msg_tx.send(msg).await;
 }
 
 fn get_temperature() -> f32 {

@@ -6,8 +6,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::cfg;
 use crate::messages::{
-    ACTION_ARROW, ACTION_INIT, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP,
-    ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
+    ACTION_APP_UPTIME, ACTION_ARROW, ACTION_INIT, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW,
+    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{self, Mode};
@@ -398,7 +398,8 @@ async fn process_event_publish(
         let payload = std::str::from_utf8(&publish.payload).expect("Failed to parse payload");
 
         match key {
-            ACTION_ONBOARD | ACTION_VERSION | ACTION_TAILSCALE_IP | ACTION_TEMPERATURE => {
+            ACTION_ONBOARD | ACTION_VERSION | ACTION_TAILSCALE_IP | ACTION_TEMPERATURE
+            | ACTION_APP_UPTIME => {
                 utils::output_push(
                     MODULE,
                     msg_tx,
