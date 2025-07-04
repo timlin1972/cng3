@@ -15,7 +15,7 @@ use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
 
 const MODULE: &str = "system";
-const VERSION: &str = "3.0.0";
+const VERSION: &str = "3.0.2";
 const PUBLISH_INTERVAL: u64 = 300;
 
 #[derive(Debug)]

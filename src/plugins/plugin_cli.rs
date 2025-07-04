@@ -10,6 +10,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::task;
 use tokio::time::{Duration, sleep};
 
+use crate::cfg;
 use crate::messages::{ACTION_ARROW, ACTION_INIT, Cmd, Data, Log, Msg};
 use crate::plugins::plugins_main;
 use crate::utils::{self, Mode};
@@ -101,7 +102,7 @@ async fn start_input_loop_gui(
     loop {
         tokio::select! {
             Some(key) = input_rx.recv() => {
-                if key.modifiers == KeyModifiers::ALT {
+                if key.modifiers == KeyModifiers::CONTROL {
                     let action = match key.code {
                         KeyCode::Up => Some("location up"),
                         KeyCode::Down => Some("location down"),
@@ -291,7 +292,7 @@ impl plugins_main::Plugin for PluginUnit {
                                     MODULE,
                                     &self.msg_tx,
                                     &self.gui_panel,
-                                    ">".to_string(),
+                                    "> ".to_string(),
                                 )
                                 .await;
 
@@ -311,6 +312,14 @@ impl plugins_main::Plugin for PluginUnit {
                                 self.info(
                                     MODULE,
                                     format!("[{MODULE}] init gui mode (panel: `{gui_panel}`)"),
+                                )
+                                .await;
+
+                                // update sub_title
+                                let sub_title = format!(" - {}", cfg::name());
+                                self.cmd(
+                                    MODULE,
+                                    format!("p panels sub_title {} '{sub_title}'", self.gui_panel),
                                 )
                                 .await;
                             }
@@ -354,7 +363,7 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.info(
+                self.warn(
                     MODULE,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )

@@ -1,24 +1,38 @@
+use std::rc::Rc;
+use std::task::{Context, Poll};
 use std::{
-    fs,
+    fs::{self, File},
+    io::Write,
     path::{Path, PathBuf},
 };
 
-use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
+use actix_files::Files;
+use actix_multipart::Multipart;
+use actix_web::{
+    App, Error, HttpResponse, HttpServer, Responder,
+    dev::{Service, ServiceRequest, ServiceResponse, Transform},
+    get,
+    http::header::CONTENT_TYPE,
+    post, web,
+};
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use chrono::{DateTime, Utc};
+use futures_util::StreamExt;
+use futures_util::future::{LocalBoxFuture, Ready, ok};
 use log::Level::{self, Info, Warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender; // trait for `.encode()`
 
-use crate::consts::{self, WEB_PORT};
+use crate::consts::{self, NAS_FOLDER, NAS_NAME, UPLOAD_FOLDER, WEB_PORT};
 use crate::messages::{ACTION_NAS_STATE, Cmd, Data, Log, Msg};
 use crate::utils::{self, FileList};
 
 const MODULE: &str = "web";
 const MAX_SIZE: usize = 50 * 1024 * 1024; // 50MB
+const API_V1_UPLOAD: &str = "/api/v1/upload";
 
 #[get("/")]
 async fn hello() -> impl Responder {
@@ -210,6 +224,110 @@ async fn download(
     }
 }
 
+async fn upload_file(mut payload: Multipart, msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
+    while let Some(Ok(mut field)) = payload.next().await {
+        let filename = field
+            .content_disposition()
+            .and_then(|cd| cd.get_filename())
+            .map(sanitize_filename::sanitize)
+            .unwrap_or_else(|| format!("upload-{}.bin", uuid::Uuid::new_v4()));
+
+        let _ = fs::create_dir_all(UPLOAD_FOLDER);
+
+        let filepath = format!("{UPLOAD_FOLDER}/{filename}");
+        info(&msg_tx, format!("[{MODULE}] API: upload_file: {filepath}")).await;
+
+        let start_ts = utils::ts();
+
+        let mut f = match File::create(&filepath) {
+            Ok(file) => file,
+            Err(e) => {
+                return HttpResponse::InternalServerError()
+                    .body(format!("Failed to create file. Err: {e}"));
+            }
+        };
+
+        while let Some(Ok(chunk)) = field.next().await {
+            if let Err(e) = f.write_all(&chunk) {
+                return HttpResponse::InternalServerError()
+                    .body(format!("Failed to write file. Err: {e}"));
+            }
+        }
+
+        let escaped_time = utils::ts() - start_ts;
+        info(
+            &msg_tx,
+            format!(
+                "[{MODULE}] API: upload_file: {filepath}, escaped: {}",
+                utils::transmit_str(f.metadata().unwrap().len(), escaped_time)
+            ),
+        )
+        .await;
+    }
+
+    HttpResponse::Ok().body("Upload complete")
+}
+
+#[derive(Clone)]
+struct CharsetMiddleware;
+
+impl<S, B> Transform<S, ServiceRequest> for CharsetMiddleware
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Transform = CharsetMiddlewareService<S>;
+    type InitError = ();
+    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        ok(CharsetMiddlewareService {
+            service: Rc::new(service),
+        })
+    }
+}
+
+struct CharsetMiddlewareService<S> {
+    service: Rc<S>,
+}
+impl<S, B> Service<ServiceRequest> for CharsetMiddlewareService<S>
+where
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    B: 'static,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&self, ctx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(ctx)
+    }
+
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let service = Rc::clone(&self.service);
+
+        Box::pin(async move {
+            let mut res = service.call(req).await?;
+
+            if let Some(content_type) = res.headers().get(CONTENT_TYPE) {
+                if let Ok(content_type_str) = content_type.to_str() {
+                    if content_type_str.starts_with("text/")
+                        && !content_type_str.contains("charset")
+                    {
+                        let new_header = format!("{}; charset=utf-8", content_type_str);
+                        res.headers_mut()
+                            .insert(CONTENT_TYPE, new_header.parse().unwrap());
+                    }
+                }
+            }
+
+            Ok(res)
+        })
+    }
+}
+
 pub struct Web {
     msg_tx: Sender<Msg>,
     shutdown_tx: broadcast::Sender<()>,
@@ -232,11 +350,18 @@ impl Web {
                 .app_data(web::Data::new(msg_tx_clone.clone()))
                 .app_data(web::PayloadConfig::new(MAX_SIZE))
                 .app_data(web::JsonConfig::default().limit(MAX_SIZE))
+                .route(API_V1_UPLOAD, web::post().to(upload_file))
                 .service(hello)
                 .service(download)
                 .service(upload)
                 .service(remove)
                 .service(check_hash)
+                .wrap(CharsetMiddleware)
+                .service(
+                    Files::new(NAS_NAME, NAS_FOLDER)
+                        .show_files_listing()
+                        .prefer_utf8(true),
+                )
         })
         .bind(("0.0.0.0", WEB_PORT))?
         .run();

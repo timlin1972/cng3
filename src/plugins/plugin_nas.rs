@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -54,14 +57,11 @@ impl PluginUnit {
 
     async fn update_infos_client_nas_state(&mut self) {
         // update infos
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Cmd(Cmd {
-                cmd: format!("p infos nas {ACTION_NAS_STATE} {:?}", self.nas_state),
-            }),
-        };
-        let _ = self.msg_tx.send(msg).await;
+        self.cmd(
+            MODULE,
+            format!("p infos nas {ACTION_NAS_STATE} {:?}", self.nas_state),
+        )
+        .await;
     }
 
     async fn handle_nas_event_server(&mut self, name: &String, nas_event: &NasEvent) {
@@ -95,17 +95,12 @@ impl PluginUnit {
                 }
 
                 // update infos
-                let msg = Msg {
-                    ts: utils::ts(),
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!(
-                            "p infos nas {ACTION_NAS_STATE} {name} {:?}",
-                            nas_info.nas_state
-                        ),
-                    }),
-                };
-                let _ = self.msg_tx.send(msg).await;
+                let nas_state_clone = nas_info.nas_state.clone();
+                self.cmd(
+                    MODULE,
+                    format!("p infos nas {ACTION_NAS_STATE} {name} {nas_state_clone:?}",),
+                )
+                .await;
             }
         }
     }
@@ -420,6 +415,16 @@ impl PluginUnit {
     }
 
     async fn put_file(&self, remote_ip: &str, remote_name: &str, filename: &str) {
+        let path = Path::new(filename);
+        if !path.exists() {
+            self.warn(
+                MODULE,
+                format!("[{MODULE}] PUT `{filename}` failed. Fild not found."),
+            )
+            .await;
+            return;
+        }
+
         let file_path = PathBuf::from(filename);
 
         let bytes = fs::read(&file_path).unwrap();
@@ -469,6 +474,11 @@ impl PluginUnit {
 
     async fn handle_cmd_file_modify(&mut self, cmd_parts: &[String]) {
         if let Some(filename) = cmd_parts.get(3) {
+            let filename_bytes = general_purpose::STANDARD
+                .decode(filename)
+                .expect("Failed to decode");
+            let filename = String::from_utf8(filename_bytes).expect("Invalid UTF-8");
+
             // server
             #[allow(clippy::collapsible_else_if)]
             if self.nas_server == cfg::name() {
@@ -478,7 +488,7 @@ impl PluginUnit {
                         self.put_file(
                             &nas_info.tailscale_ip.clone().unwrap(),
                             &nas_info.name,
-                            filename,
+                            &filename,
                         )
                         .await;
                     }
@@ -488,7 +498,7 @@ impl PluginUnit {
             else {
                 if self.nas_state == NasState::Synced {
                     let nas_server_ip = self.get_nas_server_ip().await.unwrap(); // must NOT be None
-                    self.put_file(&nas_server_ip, &self.nas_server, filename)
+                    self.put_file(&nas_server_ip, &self.nas_server, &filename)
                         .await;
                 }
             }
@@ -497,6 +507,11 @@ impl PluginUnit {
 
     async fn handle_cmd_file_remove(&mut self, cmd_parts: &[String]) {
         if let Some(filename) = cmd_parts.get(3) {
+            let filename_bytes = general_purpose::STANDARD
+                .decode(filename)
+                .expect("Failed to decode");
+            let filename = String::from_utf8(filename_bytes).expect("Invalid UTF-8");
+
             // server
             #[allow(clippy::collapsible_else_if)]
             if self.nas_server == cfg::name() {
@@ -506,7 +521,7 @@ impl PluginUnit {
                         self.remove_file(
                             &nas_info.tailscale_ip.clone().unwrap(),
                             &nas_info.name,
-                            filename,
+                            &filename,
                         )
                         .await;
                     }
@@ -516,7 +531,7 @@ impl PluginUnit {
             else {
                 if self.nas_state == NasState::Synced {
                     let nas_server_ip = self.get_nas_server_ip().await.unwrap(); // must NOT be None
-                    self.remove_file(&nas_server_ip, &self.nas_server, filename)
+                    self.remove_file(&nas_server_ip, &self.nas_server, &filename)
                         .await;
                 }
             }

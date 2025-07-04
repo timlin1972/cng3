@@ -3,7 +3,8 @@ use std::thread;
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use log::Level::{Info, Warn};
+use base64::{Engine as _, engine::general_purpose};
+use log::Level::Info;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::{
     sync::{
@@ -129,7 +130,7 @@ impl PluginUnit {
             }
         });
 
-        self.log(MODULE, Info, format!("[{MODULE}] init")).await;
+        self.info(MODULE, format!("[{MODULE}] init")).await;
     }
 }
 
@@ -153,9 +154,8 @@ impl plugins_main::Plugin for PluginUnit {
                         self.handle_cmd_init(shutdown_rx).await;
                     }
                     _ => {
-                        self.log(
+                        self.warn(
                             MODULE,
-                            Warn,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -165,9 +165,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.warn(
                     MODULE,
-                    Warn,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;
@@ -207,7 +206,10 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                     ts: utils::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
-                        cmd: format!("p nas {ACTION_FILE_MODIFY} {filename}"),
+                        cmd: format!(
+                            "p nas {ACTION_FILE_MODIFY} {}",
+                            general_purpose::STANDARD.encode(filename)
+                        ),
                     }),
                 };
                 let _ = msg_tx.send(msg).await;
@@ -231,7 +233,10 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                     ts: utils::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
-                        cmd: format!("p nas {ACTION_FILE_REMOVE} {filename}"),
+                        cmd: format!(
+                            "p nas {ACTION_FILE_REMOVE} {}",
+                            general_purpose::STANDARD.encode(filename)
+                        ),
                     }),
                 };
                 let _ = msg_tx.send(msg).await;

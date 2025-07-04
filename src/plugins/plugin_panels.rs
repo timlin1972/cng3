@@ -1,14 +1,14 @@
-use std::vec;
-
 use async_trait::async_trait;
 use log::Level::Info;
 use ratatui::{
     DefaultTerminal, Frame,
-    layout::Rect,
+    crossterm::{cursor::SetCursorStyle, execute},
+    layout::{Position, Rect},
     style::{Color, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
+
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 
@@ -17,6 +17,8 @@ use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
 
 const MODULE: &str = "panels";
+const MAX_OUTPUT_LEN: usize = 300;
+const CURSOR_PANEL_TITLE: &str = "command";
 
 #[derive(Debug)]
 struct Panel {
@@ -85,9 +87,17 @@ impl PluginUnit {
         }
         self.inited = true;
         self.terminal = Some(ratatui::init());
+
+        let mut stdout = std::io::stdout();
+        execute!(stdout, SetCursorStyle::BlinkingBlock).unwrap();
+
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         tokio::spawn(async move {
             let _ = shutdown_rx.recv().await;
+
+            let mut stdout = std::io::stdout();
+            execute!(stdout, SetCursorStyle::DefaultUserShape).unwrap();
+
             ratatui::restore();
         });
 
@@ -278,6 +288,10 @@ impl plugins_main::Plugin for PluginUnit {
                                     self.panels.iter_mut().find(|p| p.title == *panel_title)
                                 {
                                     panel.output.push(output.to_string());
+                                    let panel_output_len = panel.output.len();
+                                    if panel_output_len > MAX_OUTPUT_LEN {
+                                        panel.output.drain(..panel_output_len - MAX_OUTPUT_LEN);
+                                    }
                                 }
                             }
                             let _ = terminal.draw(|frame| self.draw(frame));
@@ -322,7 +336,7 @@ impl plugins_main::Plugin for PluginUnit {
                                 let _ = terminal.draw(|frame| self.draw(frame));
                                 self.terminal = Some(terminal);
                             } else {
-                                self.info(
+                                self.warn(
                                     MODULE,
                                     format!(
                                         "[{MODULE}] Missing title/plugin_name/x/y/x_width/y_height for cmd `{}`.",
@@ -334,7 +348,7 @@ impl plugins_main::Plugin for PluginUnit {
                         }
                     }
                     _ => {
-                        self.info(
+                        self.warn(
                             MODULE,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
@@ -345,7 +359,7 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.info(
+                self.warn(
                     MODULE,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
@@ -412,6 +426,14 @@ fn draw_panel(panel: &Panel, frame: &mut Frame, active: bool) {
         .scroll((scroll_offset, 0));
 
     frame.render_widget(text, panel_block.inner(panel_area));
+
+    // cursor is only for panel command
+    if panel.title == CURSOR_PANEL_TITLE && !panel.output.is_empty() {
+        frame.set_cursor_position(Position::new(
+            panel.x + panel.output[0].len() as u16 + 1,
+            panel.y + 1,
+        ));
+    }
 }
 
 fn panel_rect(x: u16, y: u16, x_width: u16, y_height: u16, area: Rect) -> Rect {

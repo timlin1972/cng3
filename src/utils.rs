@@ -49,6 +49,39 @@ pub fn uptime_str(uptime: u64) -> String {
     format!("{days}d {hours:02}:{minutes:02}:{seconds:02}")
 }
 
+pub fn format_number(num: u64) -> String {
+    if num >= 1_000_000 {
+        format!("{:.1}M", num as f64 / 1_000_000.0)
+    } else if num >= 1_000 {
+        format!("{:.1}k", num as f64 / 1_000.0)
+    } else {
+        num.to_string()
+    }
+}
+
+fn format_speed(num: f64) -> String {
+    if num >= 1_000_000_000.0 {
+        format!("{:.1}GB/s", num / 1_000_000_000.0)
+    } else if num >= 1_000_000.0 {
+        format!("{:.1}MB/s", num / 1_000_000.0)
+    } else if num >= 1_000.0 {
+        format!("{:.1}KB/s", num / 1_000.0)
+    } else {
+        format!("{:.1}B/s", num)
+    }
+}
+
+pub fn transmit_str(transmit_size: u64, escaped_time: u64) -> String {
+    let escaped_time = if escaped_time == 0 { 1 } else { escaped_time };
+    let speed = transmit_size as f64 / escaped_time as f64;
+
+    format!(
+        "{} ({}, {escaped_time}s)",
+        format_speed(speed),
+        format_number(transmit_size)
+    )
+}
+
 // Mode
 #[derive(PartialEq, Debug, Clone)]
 pub enum Mode {
