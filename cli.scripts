@@ -3,3 +3,16 @@ p cli init cli
 p mqtt init cli
 p nas init cng3_pi5
 p monitor init
+p weather init
+p weather add 新店 24.9676 121.542
+p weather add 新莊 25.0359 121.45
+p weather add 台北 25.0330 121.5654
+p weather add 台南 23.1725 120.279
+p weather add Eindhoven 51.44 5.46
+p weather add 東京 35.6895 139.6917
+p weather add 西雅圖 47.6062 122.3321
+p weather add 清邁 18.7061 98.9817
+p weather add 拜縣 19.3583 98.4418
+
+# - music
+p music init

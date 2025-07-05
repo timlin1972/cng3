@@ -36,15 +36,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -193,7 +185,7 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                 let filename = monitor_get_file(path.to_str().unwrap());
 
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Log(Log {
                         level: Info,
@@ -203,7 +195,7 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                 let _ = msg_tx.send(msg).await;
 
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
                         cmd: format!(
@@ -220,7 +212,7 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                 let filename = monitor_get_file(path.to_str().unwrap());
 
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Log(Log {
                         level: Info,
@@ -230,7 +222,7 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                 let _ = msg_tx.send(msg).await;
 
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
                         cmd: format!(

@@ -4,8 +4,8 @@ use tokio::sync::broadcast;
 
 use crate::messages::{ACTION_SHOW, Cmd, Data, Log, Msg};
 use crate::plugins::{
-    plugin_cli, plugin_devices, plugin_infos, plugin_log, plugin_monitor, plugin_mqtt, plugin_nas,
-    plugin_panels, plugin_scripts, plugin_system,
+    plugin_cli, plugin_devices, plugin_infos, plugin_log, plugin_monitor, plugin_mqtt,
+    plugin_music, plugin_nas, plugin_panels, plugin_scripts, plugin_system, plugin_weather,
 };
 use crate::utils;
 
@@ -25,7 +25,7 @@ pub trait Plugin {
 
     async fn log(&self, module: &str, level: log::Level, msg: String) {
         let msg = Msg {
-            ts: utils::ts(),
+            ts: utils::time::ts(),
             module: module.to_string(),
             data: Data::Log(Log { level, msg }),
         };
@@ -42,7 +42,7 @@ pub trait Plugin {
 
     async fn cmd(&self, module: &str, cmd: String) {
         let msg = Msg {
-            ts: utils::ts(),
+            ts: utils::time::ts(),
             module: module.to_string(),
             data: Data::Cmd(Cmd { cmd }),
         };
@@ -81,18 +81,20 @@ impl Plugins {
                 as Box<dyn Plugin + Send + Sync>,
             Box::new(plugin_monitor::PluginUnit::new(msg_tx.clone(), shutdown_tx.clone()).await)
                 as Box<dyn Plugin + Send + Sync>,
+            Box::new(plugin_weather::PluginUnit::new(msg_tx.clone(), shutdown_tx.clone()).await)
+                as Box<dyn Plugin + Send + Sync>,
+            Box::new(plugin_music::PluginUnit::new(msg_tx.clone()).await)
+                as Box<dyn Plugin + Send + Sync>,
         ];
 
-        let plugins = Self { msg_tx, plugins };
+        utils::log::log_new(&msg_tx, MODULE).await;
 
-        plugins.info(format!("[{MODULE}] new")).await;
-
-        plugins
+        Self { msg_tx, plugins }
     }
 
     async fn log(&self, level: log::Level, msg: String) {
         let msg = Msg {
-            ts: utils::ts(),
+            ts: utils::time::ts(),
             module: MODULE.to_string(),
             data: Data::Log(Log { level, msg }),
         };
@@ -112,7 +114,7 @@ impl Plugins {
             #[allow(clippy::single_match)]
             match action.as_str() {
                 ACTION_SHOW => {
-                    self.info(format!("{:<12}", "Plugin")).await;
+                    self.info(format!("{MODULE:<12}")).await;
                     for plugin in &self.plugins {
                         self.info(format!("{:<12}", plugin.name())).await;
                     }

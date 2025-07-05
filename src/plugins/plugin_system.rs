@@ -9,13 +9,13 @@ use tokio::{
 
 use crate::messages::{
     ACTION_APP_UPTIME, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP,
-    ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
+    ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils;
+use crate::utils::{self, dev_info};
 
 const MODULE: &str = "system";
-const VERSION: &str = "3.0.2";
+const VERSION: &str = "3.0.3";
 const PUBLISH_INTERVAL: u64 = 300;
 
 #[derive(Debug)]
@@ -34,15 +34,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         let msg_tx_clone = msg_tx.clone();
         let mut shutdown_rx = shutdown_tx.subscribe();
@@ -51,7 +43,7 @@ impl PluginUnit {
                 select! {
                     _ = sleep(Duration::from_secs(PUBLISH_INTERVAL)) => {
                         let msg = Msg {
-                            ts: utils::ts(),
+                            ts: utils::time::ts(),
                             module: MODULE.to_string(),
                             data: Data::Cmd(Cmd {
                                 cmd: format!("p system {ACTION_PUBLISH}"),
@@ -72,8 +64,8 @@ impl PluginUnit {
             msg_tx,
             system_info: SystemInfo {
                 version: VERSION.to_string(),
-                tailscale_ip: utils::get_tailscale_ip(),
-                ts_start: utils::uptime(),
+                tailscale_ip: utils::system::get_tailscale_ip(),
+                ts_start: utils::time::uptime(),
             },
         }
     }
@@ -101,7 +93,7 @@ impl PluginUnit {
             MODULE,
             format!(
                 "[{MODULE}] Temperature: {}",
-                utils::temperature_str(Some(get_temperature()))
+                dev_info::temperature_str(Some(get_temperature()))
             ),
         )
         .await;
@@ -110,7 +102,7 @@ impl PluginUnit {
             MODULE,
             format!(
                 "[{MODULE}] App uptime: {}",
-                utils::uptime_str(utils::uptime() - self.system_info.ts_start)
+                utils::time::uptime_str(utils::time::uptime() - self.system_info.ts_start)
             ),
         )
         .await;
@@ -160,7 +152,7 @@ impl PluginUnit {
         .await;
 
         // app uptime
-        let uptime = utils::uptime() - self.system_info.ts_start;
+        let uptime = utils::time::uptime() - self.system_info.ts_start;
         self.cmd(
             MODULE,
             format!("p mqtt {ACTION_PUBLISH} false {ACTION_APP_UPTIME} '{uptime}'",),

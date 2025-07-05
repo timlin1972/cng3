@@ -2,10 +2,9 @@ use std::fs::File;
 use std::io::{self, BufRead};
 
 use async_trait::async_trait;
-use log::Level::{Info, Warn};
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_INIT, ACTION_SHOW, Data, Log, Msg};
+use crate::messages::{ACTION_INIT, ACTION_SHOW, Data, Msg};
 use crate::plugins::plugins_main;
 use crate::utils;
 
@@ -20,15 +19,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -62,16 +53,14 @@ impl plugins_main::Plugin for PluginUnit {
                                     self.cmd(MODULE, line).await;
                                 }
 
-                                self.log(
+                                self.info(
                                     MODULE,
-                                    Info,
                                     format!("[{MODULE}] init script (`{scripts_filename}`)"),
                                 )
                                 .await;
                             } else {
-                                self.log(
+                                self.warn(
                                     MODULE,
-                                    Warn,
                                     format!(
                                         "[{MODULE}] init script (`{scripts_filename}`) not found!"
                                     ),
@@ -87,12 +76,11 @@ impl plugins_main::Plugin for PluginUnit {
                                 let reader = io::BufReader::new(file);
 
                                 for line in reader.lines().map_while(Result::ok) {
-                                    self.log(MODULE, Info, format!("[{MODULE}] {line}")).await;
+                                    self.info(MODULE, format!("[{MODULE}] {line}")).await;
                                 }
                             } else {
-                                self.log(
+                                self.warn(
                                     MODULE,
-                                    Warn,
                                     format!(
                                         "[{MODULE}] init script (`{scripts_filename}`) not found!"
                                     ),
@@ -102,9 +90,8 @@ impl plugins_main::Plugin for PluginUnit {
                         }
                     }
                     _ => {
-                        self.log(
+                        self.warn(
                             MODULE,
-                            Warn,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -114,9 +101,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.warn(
                     MODULE,
-                    Warn,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;

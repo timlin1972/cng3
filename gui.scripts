@@ -6,16 +6,16 @@ p panels create command cli 0 0 80 3
 p cli init gui command
 
 # - log
-p panels create log log 0 3 80 30
+p panels create log log 0 0 50 60
 p log gui log
 
-# mqtt
-p panels create mqtt mqtt 80 0 70 33
+# - mqtt
+p panels create mqtt mqtt 51 0 50 60
 p mqtt init gui mqtt
 
 # - infos
 p infos gui infos
-p panels create infos infos 0 33 150 15
+p panels create infos infos 0 61 100 40
 
 # - nas
 p nas init cng3_pi5
@@ -23,6 +23,21 @@ p nas init cng3_pi5
 
 # - monitor
 p monitor init
+
+# - weather
+p weather init
+p weather add 新店 24.9676 121.542
+p weather add 新莊 25.0359 121.45
+p weather add 台北 25.0330 121.5654
+p weather add 台南 23.1725 120.279
+p weather add Eindhoven 51.44 5.46
+p weather add 東京 35.6895 139.6917
+p weather add 西雅圖 47.6062 122.3321
+p weather add 清邁 18.7061 98.9817
+p weather add 拜縣 19.3583 98.4418
+
+# - music
+p music init
 
 # Help
 # p panels create infos infos 0 33 150 15

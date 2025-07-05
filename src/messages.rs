@@ -86,7 +86,7 @@ impl Messages {
         });
 
         let msg = Msg {
-            ts: utils::ts(),
+            ts: utils::time::ts(),
             module: MODULE.to_string(),
             data: Data::Log(Log {
                 level: Info,
@@ -139,7 +139,7 @@ async fn parse_cmd(
             }
             _ => {
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Log(Log {
                         level: Warn,

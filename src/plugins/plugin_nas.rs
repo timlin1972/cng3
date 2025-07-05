@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use chrono::{DateTime, Utc};
-use log::Level::Info;
 use serde_json::json;
 use tokio::sync::mpsc::Sender; // trait for `.encode()`
 
@@ -15,10 +14,13 @@ use crate::cfg;
 use crate::consts::{self, NAS_FOLDER, WEB_PORT};
 use crate::messages::{
     ACTION_DEVICES, ACTION_FILE_MODIFY, ACTION_FILE_REMOVE, ACTION_INIT, ACTION_NAS_STATE,
-    ACTION_ONBOARD, ACTION_SHOW, ACTION_TAILSCALE_IP, Cmd, Data, Log, Msg,
+    ACTION_ONBOARD, ACTION_SHOW, ACTION_TAILSCALE_IP, Cmd, Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils::{self, FileList, NasEvent, NasInfo, NasState, SyncAction};
+use crate::utils::{
+    self,
+    nas_info::{self, FileList, NasEvent, NasInfo, NasState, SyncAction},
+};
 
 const MODULE: &str = "nas";
 const WAITING_FOR_NAS_SERVER_IP_DELAY: u64 = 3;
@@ -28,6 +30,7 @@ pub struct PluginUnit {
     name: String,
     msg_tx: Sender<Msg>,
     inited: bool,
+    gui_panel: String,
     nas_server: String,
     nas_state: NasState,     // For client
     nas_infos: Vec<NasInfo>, // For server
@@ -35,20 +38,13 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
             msg_tx,
             inited: false,
+            gui_panel: "infos".to_string(),
             nas_server: String::new(),
             nas_state: NasState::Unsync,
             nas_infos: vec![],
@@ -59,7 +55,10 @@ impl PluginUnit {
         // update infos
         self.cmd(
             MODULE,
-            format!("p infos nas {ACTION_NAS_STATE} {:?}", self.nas_state),
+            format!(
+                "p {} nas {ACTION_NAS_STATE} {:?}",
+                self.gui_panel, self.nas_state
+            ),
         )
         .await;
     }
@@ -98,7 +97,10 @@ impl PluginUnit {
                 let nas_state_clone = nas_info.nas_state.clone();
                 self.cmd(
                     MODULE,
-                    format!("p infos nas {ACTION_NAS_STATE} {name} {nas_state_clone:?}",),
+                    format!(
+                        "p {} nas {ACTION_NAS_STATE} {name} {nas_state_clone:?}",
+                        self.gui_panel
+                    ),
                 )
                 .await;
             }
@@ -131,7 +133,7 @@ impl PluginUnit {
 
                 // re-onboard
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
                         cmd: format!("p nas {ACTION_DEVICES} onboard {nas_server_clone} '1'"),
@@ -202,7 +204,7 @@ impl PluginUnit {
             let file_list_server = json["data"]["file_list"].clone();
             let file_list_server: FileList = serde_json::from_value(file_list_server).unwrap();
 
-            let actions = utils::compare_and_generate_actions(&file_list_server, &file_list);
+            let actions = nas_info::compare_and_generate_actions(&file_list_server, &file_list);
             for action in &actions {
                 match action {
                     SyncAction::GetFile { filename, mtime: _ } => {
@@ -227,7 +229,7 @@ impl PluginUnit {
                         let content = resp["data"]["content"].as_str().unwrap();
                         let mtime = resp["data"]["mtime"].as_str().unwrap();
 
-                        let _ = utils::write_file(filename, content, mtime).await;
+                        let _ = nas_info::write_file(filename, content, mtime).await;
 
                         self.info(
                             MODULE,
@@ -285,7 +287,7 @@ impl PluginUnit {
 
     async fn handle_cmd_devices(&mut self, cmd_parts: &[String]) {
         if let Some(action) = cmd_parts.get(3) {
-            let ts = utils::ts();
+            let ts = utils::time::ts();
             match action.as_str() {
                 ACTION_ONBOARD => {
                     if let (Some(name), Some(onboard)) = (cmd_parts.get(4), cmd_parts.get(5)) {
@@ -310,8 +312,11 @@ impl PluginUnit {
                         }
 
                         // update infos
-                        self.cmd(MODULE, format!("p infos nas onboard {name} {onboard_str}"))
-                            .await;
+                        self.cmd(
+                            MODULE,
+                            format!("p {} nas onboard {name} {onboard_str}", self.gui_panel,),
+                        )
+                        .await;
                         self.update_infos_client_nas_state().await;
 
                         // handle_nas_event
@@ -356,10 +361,10 @@ impl PluginUnit {
 
             // update infos
             let msg = Msg {
-                ts: utils::ts(),
+                ts: utils::time::ts(),
                 module: MODULE.to_string(),
                 data: Data::Cmd(Cmd {
-                    cmd: format!("p infos nas nas_server {nas_server}"),
+                    cmd: format!("p {} nas nas_server {nas_server}", self.gui_panel,),
                 }),
             };
             let _ = self.msg_tx.send(msg).await;
@@ -407,7 +412,10 @@ impl PluginUnit {
                 let nas_info_nas_state = nas_info.nas_state.clone();
                 self.cmd(
                     MODULE,
-                    format!("p infos nas {ACTION_NAS_STATE} {name} {nas_info_nas_state:?}",),
+                    format!(
+                        "p {} nas {ACTION_NAS_STATE} {name} {nas_info_nas_state:?}",
+                        self.gui_panel
+                    ),
                 )
                 .await;
             }

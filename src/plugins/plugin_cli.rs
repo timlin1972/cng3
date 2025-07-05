@@ -13,12 +13,12 @@ use tokio::time::{Duration, sleep};
 use crate::cfg;
 use crate::messages::{ACTION_ARROW, ACTION_INIT, Cmd, Data, Log, Msg};
 use crate::plugins::plugins_main;
-use crate::utils::{self, Mode};
+use crate::utils::{self, mode::Mode, panel};
 
 const MODULE: &str = "cli";
 
 fn prompt() {
-    print!("{} > ", utils::ts_str(utils::ts()));
+    print!("{} > ", utils::time::ts_str(utils::time::ts()));
     std::io::stdout()
         .flush()
         .map_err(|e| e.to_string())
@@ -44,7 +44,7 @@ async fn start_input_loop_cli(msg_tx: Sender<Msg>, mut shutdown_rx: broadcast::R
                     Ok(None) => break, // EOF
                     Err(e) => {
                         let msg = Msg {
-                            ts: utils::ts(),
+                            ts: utils::time::ts(),
                             module: MODULE.to_string(),
                             data: Data::Log(Log { level: log::Level::Warn, msg: format!("[{MODULE}] Failed to read input. Err: {e}") }),
                         };
@@ -124,12 +124,12 @@ async fn start_input_loop_gui(
                         KeyCode::Char(c) => {
                             let mut output = output.lock().await;
                             output.push(c);
-                            utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
+                            panel::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Backspace => {
                             let mut output = output.lock().await;
                             output.pop();
-                            utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
+                            panel::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Enter => {
                             let mut output = output.lock().await;
@@ -146,7 +146,7 @@ async fn start_input_loop_gui(
 
                             cmd(&msg_tx, output.clone()).await;
                             output.clear();
-                            utils::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
+                            panel::output_update_gui_simple(MODULE, &msg_tx, &gui_panel, format!("> {output}")).await;
                         }
                         KeyCode::Left => cmd(&msg_tx, format!("p panels {ACTION_ARROW} left")).await,
                         KeyCode::Right => cmd(&msg_tx, format!("p panels {ACTION_ARROW} right")).await,
@@ -183,15 +183,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: log::Level::Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -219,7 +211,7 @@ impl PluginUnit {
                         *output = history[*history_index].clone();
                     }
 
-                    utils::output_update_gui_simple(
+                    panel::output_update_gui_simple(
                         MODULE,
                         &self.msg_tx,
                         &self.gui_panel,
@@ -241,7 +233,7 @@ impl PluginUnit {
                         }
                     }
 
-                    utils::output_update_gui_simple(
+                    panel::output_update_gui_simple(
                         MODULE,
                         &self.msg_tx,
                         &self.gui_panel,
@@ -288,7 +280,7 @@ impl plugins_main::Plugin for PluginUnit {
                                 self.gui_panel = gui_panel.to_string();
 
                                 // update prompt
-                                utils::output_update_gui_simple(
+                                panel::output_update_gui_simple(
                                     MODULE,
                                     &self.msg_tx,
                                     &self.gui_panel,
@@ -375,7 +367,7 @@ impl plugins_main::Plugin for PluginUnit {
 
 async fn cmd(msg_tx: &Sender<Msg>, cmd: String) {
     let msg = Msg {
-        ts: utils::ts(),
+        ts: utils::time::ts(),
         module: MODULE.to_string(),
         data: Data::Cmd(Cmd { cmd }),
     };
