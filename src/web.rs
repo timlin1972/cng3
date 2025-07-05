@@ -28,7 +28,10 @@ use tokio::sync::mpsc::Sender; // trait for `.encode()`
 
 use crate::consts::{self, NAS_FOLDER, NAS_NAME, UPLOAD_FOLDER, WEB_PORT};
 use crate::messages::{ACTION_NAS_STATE, Cmd, Data, Log, Msg};
-use crate::utils::{self, FileList};
+use crate::utils::{
+    self,
+    nas_info::{self, FileList},
+};
 
 const MODULE: &str = "web";
 const MAX_SIZE: usize = 50 * 1024 * 1024; // 50MB
@@ -71,7 +74,7 @@ pub async fn check_hash(
     .await;
 
     let msg = Msg {
-        ts: utils::ts(),
+        ts: utils::time::ts(),
         module: MODULE.to_string(),
         data: Data::Cmd(Cmd {
             cmd: format!(
@@ -120,7 +123,7 @@ async fn upload(data: web::Json<UploadRequest>, msg_tx: web::Data<Sender<Msg>>) 
     let content = &data.data.content;
     let mtime = &data.data.mtime;
 
-    if let Err(e) = utils::write_file(filename, content, mtime).await {
+    if let Err(e) = nas_info::write_file(filename, content, mtime).await {
         warn(
             &msg_tx,
             format!("[{MODULE}] Failed to write `{filename}`: {e}"),
@@ -151,7 +154,7 @@ async fn remove(data: web::Json<RemoveRequest>, msg_tx: web::Data<Sender<Msg>>) 
         return HttpResponse::BadRequest().body("Invalid filename");
     }
 
-    if let Err(e) = utils::safe_remove(filename).await {
+    if let Err(e) = nas_info::safe_remove(filename).await {
         warn(
             &msg_tx,
             format!("[{MODULE}] Failed to remove `{filename}`: {e}"),
@@ -237,7 +240,7 @@ async fn upload_file(mut payload: Multipart, msg_tx: web::Data<Sender<Msg>>) -> 
         let filepath = format!("{UPLOAD_FOLDER}/{filename}");
         info(&msg_tx, format!("[{MODULE}] API: upload_file: {filepath}")).await;
 
-        let start_ts = utils::ts();
+        let start_ts = utils::time::ts();
 
         let mut f = match File::create(&filepath) {
             Ok(file) => file,
@@ -254,12 +257,12 @@ async fn upload_file(mut payload: Multipart, msg_tx: web::Data<Sender<Msg>>) -> 
             }
         }
 
-        let escaped_time = utils::ts() - start_ts;
+        let escaped_time = utils::time::ts() - start_ts;
         info(
             &msg_tx,
             format!(
                 "[{MODULE}] API: upload_file: {filepath}, escaped: {}",
-                utils::transmit_str(f.metadata().unwrap().len(), escaped_time)
+                utils::time::transmit_str(f.metadata().unwrap().len(), escaped_time)
             ),
         )
         .await;
@@ -384,7 +387,7 @@ impl Web {
 
 async fn log(msg_tx: &Sender<Msg>, level: Level, msg: String) {
     let msg = Msg {
-        ts: utils::ts(),
+        ts: utils::time::ts(),
         module: MODULE.to_string(),
         data: Data::Log(Log { level, msg }),
     };

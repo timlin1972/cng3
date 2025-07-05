@@ -26,7 +26,7 @@ impl App {
 
         // log
         let msg = Msg {
-            ts: utils::ts(),
+            ts: utils::time::ts(),
             module: MODULE.to_string(),
             data: Data::Log(Log {
                 level: Info,
@@ -40,7 +40,7 @@ impl App {
 
     pub async fn run(&self) -> anyhow::Result<()> {
         let msg = Msg {
-            ts: utils::ts(),
+            ts: utils::time::ts(),
             module: MODULE.to_string(),
             data: Data::Cmd(Cmd {
                 cmd: format!("p scripts {ACTION_INIT} {}", self.scripts_filename),

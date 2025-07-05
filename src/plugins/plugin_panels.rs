@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use log::Level::Info;
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::{cursor::SetCursorStyle, execute},
@@ -12,7 +11,7 @@ use ratatui::{
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_ARROW, ACTION_CREATE, ACTION_INIT, ACTION_SHOW, Data, Log, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_CREATE, ACTION_INIT, ACTION_SHOW, Data, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils;
 
@@ -27,8 +26,8 @@ struct Panel {
     plugin_name: String,
     x: u16,
     y: u16,
-    x_width: u16,
-    y_height: u16,
+    width: u16,
+    height: u16,
     output: Vec<String>,
 }
 
@@ -45,15 +44,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -67,13 +58,13 @@ impl PluginUnit {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
-        for (idx, panel) in self.panels.iter().enumerate() {
+        for (idx, panel) in self.panels.iter_mut().enumerate() {
             if idx != self.active_panel {
                 draw_panel(panel, frame, false);
             }
         }
 
-        for (idx, panel) in self.panels.iter().enumerate() {
+        for (idx, panel) in self.panels.iter_mut().enumerate() {
             if idx == self.active_panel {
                 draw_panel(panel, frame, true);
                 break;
@@ -120,19 +111,19 @@ impl PluginUnit {
                     if idx == self.active_panel {
                         match action.as_str() {
                             "+x" => {
-                                panel.x_width += 1;
+                                panel.width += 1;
                             }
                             "-x" => {
-                                if panel.x_width > 2 {
-                                    panel.x_width -= 1;
+                                if panel.width > 2 {
+                                    panel.width -= 1;
                                 }
                             }
                             "+y" => {
-                                panel.y_height += 1;
+                                panel.height += 1;
                             }
                             "-y" => {
-                                if panel.y_height > 2 {
-                                    panel.y_height -= 1;
+                                if panel.height > 2 {
+                                    panel.height -= 1;
                                 }
                             }
                             _ => (),
@@ -305,8 +296,8 @@ impl plugins_main::Plugin for PluginUnit {
                                 Some(plugin_name),
                                 Some(x),
                                 Some(y),
-                                Some(x_width),
-                                Some(y_height),
+                                Some(width),
+                                Some(height),
                             ) = (
                                 cmd_parts.get(3),
                                 cmd_parts.get(4),
@@ -323,11 +314,11 @@ impl plugins_main::Plugin for PluginUnit {
                                         .unwrap_or_else(|_| panic!("Failed to parse x (`{x}`)")),
                                     y: y.parse::<u16>()
                                         .unwrap_or_else(|_| panic!("Failed to parse y (`{y}`)")),
-                                    x_width: x_width.parse::<u16>().unwrap_or_else(|_| {
-                                        panic!("Failed to parse x_width (`{x_width}`)")
+                                    width: width.parse::<u16>().unwrap_or_else(|_| {
+                                        panic!("Failed to parse width (`{width}`)")
                                     }),
-                                    y_height: y_height.parse::<u16>().unwrap_or_else(|_| {
-                                        panic!("Failed to parse y_height (`{y_height}`)")
+                                    height: height.parse::<u16>().unwrap_or_else(|_| {
+                                        panic!("Failed to parse height (`{height}`)")
                                     }),
                                     output: vec![],
                                 };
@@ -339,7 +330,7 @@ impl plugins_main::Plugin for PluginUnit {
                                 self.warn(
                                     MODULE,
                                     format!(
-                                        "[{MODULE}] Missing title/plugin_name/x/y/x_width/y_height for cmd `{}`.",
+                                        "[{MODULE}] Missing title/plugin_name/x/y/width/height for cmd `{}`.",
                                         cmd.cmd
                                     ),
                                 )
@@ -369,14 +360,22 @@ impl plugins_main::Plugin for PluginUnit {
     }
 }
 
-fn draw_panel(panel: &Panel, frame: &mut Frame, active: bool) {
-    let panel_area = panel_rect(
-        panel.x,
-        panel.y,
-        panel.x_width,
-        panel.y_height,
-        frame.area(),
-    );
+fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
+    let width = frame.area().width;
+    let height = frame.area().height - 3;
+
+    let (panel_x, panel_y, panel_width, panel_height) = if panel.title == CURSOR_PANEL_TITLE {
+        (0, height, width, 3)
+    } else {
+        (
+            (width as f32 * panel.x as f32 / 100.0).round() as u16,
+            (height as f32 * panel.y as f32 / 100.0).round() as u16,
+            (width as f32 * panel.width as f32 / 100.0).round() as u16,
+            (height as f32 * panel.height as f32 / 100.0).round() as u16,
+        )
+    };
+
+    let panel_area = panel_rect(panel_x, panel_y, panel_width, panel_height, frame.area());
     frame.render_widget(Clear, panel_area);
 
     let panel_block = Block::default()
@@ -430,17 +429,17 @@ fn draw_panel(panel: &Panel, frame: &mut Frame, active: bool) {
     // cursor is only for panel command
     if panel.title == CURSOR_PANEL_TITLE && !panel.output.is_empty() {
         frame.set_cursor_position(Position::new(
-            panel.x + panel.output[0].len() as u16 + 1,
-            panel.y + 1,
+            panel_x + panel.output[0].len() as u16 + 1,
+            panel_y + 1,
         ));
     }
 }
 
-fn panel_rect(x: u16, y: u16, x_width: u16, y_height: u16, area: Rect) -> Rect {
+fn panel_rect(x: u16, y: u16, width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x.saturating_add(x);
     let y = area.y.saturating_add(y);
-    let width = x_width.min(area.width.saturating_sub(x - area.x));
-    let height = y_height.min(area.height.saturating_sub(y - area.y));
+    let width = width.min(area.width.saturating_sub(x - area.x));
+    let height = height.min(area.height.saturating_sub(y - area.y));
     Rect {
         x,
         y,

@@ -1,8 +1,7 @@
 use async_trait::async_trait;
-use log::Level::{Info, Warn};
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_ARROW, ACTION_LOG, Cmd, Data, Log, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_LOG, Cmd, Data, Msg};
 use crate::plugins::plugins_main;
 use crate::utils;
 
@@ -17,15 +16,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -54,25 +45,24 @@ impl plugins_main::Plugin for PluginUnit {
                         let ts = msg.ts;
                         if let (Some(level), Some(msg)) = (cmd_parts.get(3), cmd_parts.get(4)) {
                             if self.gui_panel.is_empty() {
-                                println!("{} [{level}] {msg}", utils::ts_str(ts));
+                                println!("{} [{level}] {msg}", utils::time::ts_str(ts));
                             } else {
                                 let msg = Msg {
-                                    ts: utils::ts(),
+                                    ts: utils::time::ts(),
                                     module: MODULE.to_string(),
                                     data: Data::Cmd(Cmd {
                                         cmd: format!(
                                             "p panels output_push {} '{} [{level}] {msg}'",
                                             self.gui_panel,
-                                            utils::ts_str(ts)
+                                            utils::time::ts_str(ts)
                                         ),
                                     }),
                                 };
                                 let _ = self.msg_tx.send(msg).await;
                             }
                         } else {
-                            self.log(
+                            self.warn(
                                 MODULE,
-                                Warn,
                                 format!("[{MODULE}] Missing level/msg for cmd `{}`.", cmd.cmd),
                             )
                             .await;
@@ -85,9 +75,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                     ACTION_ARROW => (),
                     _ => {
-                        self.log(
+                        self.warn(
                             MODULE,
-                            Warn,
                             format!(
                                 "[{MODULE}] Unknown action ({action}) for cmd `{}`.",
                                 cmd.cmd
@@ -97,9 +86,8 @@ impl plugins_main::Plugin for PluginUnit {
                     }
                 }
             } else {
-                self.log(
+                self.warn(
                     MODULE,
-                    Warn,
                     format!("[{MODULE}] Missing action for cmd `{}`.", cmd.cmd),
                 )
                 .await;

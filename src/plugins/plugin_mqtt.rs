@@ -7,10 +7,10 @@ use tokio::sync::mpsc::Sender;
 use crate::cfg;
 use crate::messages::{
     ACTION_APP_UPTIME, ACTION_ARROW, ACTION_INIT, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW,
-    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Log, Msg,
+    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils::{self, Mode};
+use crate::utils::{self, mode::Mode, panel};
 
 const MODULE: &str = "mqtt";
 const BROKER: &str = "broker.emqx.io";
@@ -30,15 +30,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -53,7 +45,7 @@ impl PluginUnit {
 
     async fn start_mqtt(&mut self, mut shutdown_rx: broadcast::Receiver<()>) {
         // 1. Initialization
-        utils::output_push(
+        panel::output_push(
             MODULE,
             &self.msg_tx,
             &self.mode,
@@ -74,7 +66,7 @@ impl PluginUnit {
             .set_last_will(will);
 
         // 2. Establish connection
-        utils::output_push(
+        panel::output_push(
             MODULE,
             &self.msg_tx,
             &self.mode,
@@ -86,7 +78,7 @@ impl PluginUnit {
         let (client, mut connection) = AsyncClient::new(mqttoptions, 10);
 
         // 3. Subscribe
-        utils::output_push(
+        panel::output_push(
             MODULE,
             &self.msg_tx,
             &self.mode,
@@ -101,7 +93,7 @@ impl PluginUnit {
             .expect("Failed to subscribe");
 
         // 4. Publish
-        utils::output_push(
+        panel::output_push(
             MODULE,
             &self.msg_tx,
             &self.mode,
@@ -126,7 +118,7 @@ impl PluginUnit {
         let mode_clone = self.mode.clone();
         let client_clone = client.clone();
         tokio::spawn(async move {
-            utils::output_push(
+            panel::output_push(
                 MODULE,
                 &msg_tx_clone,
                 &mode_clone,
@@ -151,7 +143,7 @@ impl PluginUnit {
                 }
             }
 
-            utils::output_push(
+            panel::output_push(
                 MODULE,
                 &msg_tx_clone,
                 &mode_clone,
@@ -175,7 +167,7 @@ impl PluginUnit {
                 };
 
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
                         cmd: format!("p mqtt restart {action}"),
@@ -277,7 +269,7 @@ impl PluginUnit {
                 {
                     self.log(MODULE, Warn, format!("[{MODULE}] Failed to publish topic (`{topic}`) payload (`{payload}`). Err: {e:?}")).await;
                 } else {
-                    utils::output_push(
+                    panel::output_push(
                         MODULE,
                         &self.msg_tx,
                         &self.mode,
@@ -368,7 +360,7 @@ async fn process_event(
         }
         Ok(_) => { /* 其他事件略過 */ }
         Err(e) => {
-            utils::output_push(
+            panel::output_push(
                 MODULE,
                 msg_tx,
                 mode,
@@ -400,7 +392,7 @@ async fn process_event_publish(
         match key {
             ACTION_ONBOARD | ACTION_VERSION | ACTION_TAILSCALE_IP | ACTION_TEMPERATURE
             | ACTION_APP_UPTIME => {
-                utils::output_push(
+                panel::output_push(
                     MODULE,
                     msg_tx,
                     mode,
@@ -411,7 +403,7 @@ async fn process_event_publish(
                 .await;
 
                 let msg = Msg {
-                    ts: utils::ts(),
+                    ts: utils::time::ts(),
                     module: MODULE.to_string(),
                     data: Data::Cmd(Cmd {
                         cmd: format!("p devices {key} {name} {payload}"),
@@ -420,7 +412,7 @@ async fn process_event_publish(
                 let _ = msg_tx.send(msg).await;
             }
             _ => {
-                utils::output_push(
+                panel::output_push(
                     MODULE,
                     msg_tx,
                     mode,

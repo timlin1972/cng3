@@ -1,13 +1,15 @@
 use async_trait::async_trait;
-use log::Level::Info;
 use tokio::sync::mpsc::Sender;
 
 use crate::messages::{
     ACTION_APP_UPTIME, ACTION_DEVICES, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW,
-    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Data, Log, Msg,
+    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils::{self, DevInfo};
+use crate::utils::{
+    self,
+    dev_info::{self, DevInfo},
+};
 
 const MODULE: &str = "devices";
 
@@ -20,15 +22,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        let msg = Msg {
-            ts: utils::ts(),
-            module: MODULE.to_string(),
-            data: Data::Log(Log {
-                level: Info,
-                msg: format!("[{MODULE}] new"),
-            }),
-        };
-        msg_tx.send(msg).await.expect("Failed to send message");
+        utils::log::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -47,7 +41,7 @@ impl PluginUnit {
                 MODULE,
                 format!(
                     "[{MODULE}]     Last update: {}",
-                    utils::ts_str_full(device.ts)
+                    utils::time::ts_str_full(device.ts)
                 ),
             )
             .await;
@@ -57,7 +51,7 @@ impl PluginUnit {
                 MODULE,
                 format!(
                     "[{MODULE}]     Onboard: {}",
-                    utils::onboard_str(device.onboard)
+                    dev_info::onboard_str(device.onboard)
                 ),
             )
             .await;
@@ -87,7 +81,7 @@ impl PluginUnit {
                 MODULE,
                 format!(
                     "[{MODULE}]     Temperature: {}",
-                    utils::temperature_str(device.temperature)
+                    dev_info::temperature_str(device.temperature)
                 ),
             )
             .await;
@@ -97,7 +91,7 @@ impl PluginUnit {
                 MODULE,
                 format!(
                     "[{MODULE}]     App uptime: {}",
-                    utils::app_uptime_str(device.app_uptime)
+                    dev_info::app_uptime_str(device.app_uptime)
                 ),
             )
             .await;
@@ -106,7 +100,7 @@ impl PluginUnit {
 
     async fn handle_cmd_onboard(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(onboard)) = (cmd_parts.get(3), cmd_parts.get(4)) {
-            let ts = utils::ts();
+            let ts = utils::time::ts();
             let onbard_str = onboard.clone();
             let onboard = onboard == "1";
 
@@ -136,8 +130,8 @@ impl PluginUnit {
                     MODULE,
                     format!(
                         "[{MODULE}] {name} {} at {}",
-                        utils::onboard_str(onboard),
-                        utils::ts_str_full(ts),
+                        dev_info::onboard_str(onboard),
+                        utils::time::ts_str_full(ts),
                     ),
                 )
                 .await;
@@ -166,7 +160,7 @@ impl PluginUnit {
 
     async fn handle_cmd_version(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(version)) = (cmd_parts.get(3), cmd_parts.get(4)) {
-            let ts = utils::ts();
+            let ts = utils::time::ts();
 
             if let Some(device) = self.devices.iter_mut().find(|device| device.name == *name) {
                 device.ts = ts;
@@ -184,7 +178,7 @@ impl PluginUnit {
 
     async fn handle_cmd_tailscale_ip(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(tailscale_ip)) = (cmd_parts.get(3), cmd_parts.get(4)) {
-            let ts = utils::ts();
+            let ts = utils::time::ts();
 
             if let Some(device) = self.devices.iter_mut().find(|device| device.name == *name) {
                 device.ts = ts;
@@ -209,7 +203,7 @@ impl PluginUnit {
 
     async fn handle_cmd_temperature(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(temperature)) = (cmd_parts.get(3), cmd_parts.get(4)) {
-            let ts = utils::ts();
+            let ts = utils::time::ts();
 
             if let Some(device) = self.devices.iter_mut().find(|device| device.name == *name) {
                 device.ts = ts;
@@ -227,7 +221,7 @@ impl PluginUnit {
 
     async fn handle_cmd_app_uptime(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(app_uptime)) = (cmd_parts.get(3), cmd_parts.get(4)) {
-            let ts = utils::ts();
+            let ts = utils::time::ts();
 
             if let Some(device) = self.devices.iter_mut().find(|device| device.name == *name) {
                 device.ts = ts;
