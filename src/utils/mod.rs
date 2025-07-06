@@ -1,4 +1,5 @@
 pub mod dev_info;
+pub mod ffmpeg;
 pub mod log;
 pub mod mode;
 pub mod nas_info;

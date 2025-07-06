@@ -393,11 +393,12 @@ fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
 
     let area_height = panel_area.height;
 
-    let scroll_offset = if panel.output.len() as u16 > (area_height - 2) {
-        panel.output.len() as u16 - (area_height - 2)
-    } else {
-        0
-    };
+    let scroll_offset =
+        if panel.title != CURSOR_PANEL_TITLE && panel.output.len() as u16 > (area_height - 3) {
+            panel.output.len() as u16 - (area_height - 3)
+        } else {
+            0
+        };
 
     let lines: Vec<Line> = panel
         .output
