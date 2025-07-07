@@ -436,29 +436,60 @@ impl PluginUnit {
         let file_path = PathBuf::from(filename);
 
         let bytes = fs::read(&file_path).unwrap();
-        let mtime = fs::metadata(&file_path)
-            .and_then(|meta| meta.modified())
-            .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
-            .unwrap_or_else(|_| Utc::now().to_rfc3339());
-        let encoded = general_purpose::STANDARD.encode(&bytes);
+        let hash_str = nas_info::hash_str(&String::from_utf8_lossy(&bytes));
+
         let client = reqwest::Client::new();
-        let _ = client
-            .post(format!("http://{remote_ip}:{WEB_PORT}/upload"))
+        let json: serde_json::Value = client
+            // let json = client
+            .post(format!("http://{remote_ip}:{WEB_PORT}/verify_hash"))
             .json(&json!({
                 "data": {
                     "filename": filename,
-                    "content": encoded,
-                    "mtime": mtime,
+                    "hash_str": hash_str,
                 }
             }))
             .send()
-            .await;
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+            .parse()
+            .unwrap();
 
-        self.info(
-            MODULE,
-            format!("[{MODULE}] PUT `{filename}` to {remote_name}"),
-        )
-        .await;
+        let result = json["data"]["result"].as_u64().unwrap();
+        if result == 0 {
+            self.info(
+                MODULE,
+                format!("[{MODULE}] PUT `{filename}` to {remote_name} ignored. Same."),
+            )
+            .await;
+        } else {
+            let mtime = fs::metadata(&file_path)
+                .and_then(|meta| meta.modified())
+                .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
+                .unwrap_or_else(|_| Utc::now().to_rfc3339());
+            let encoded = general_purpose::STANDARD.encode(&bytes);
+
+            let client = reqwest::Client::new();
+            let _ = client
+                .post(format!("http://{remote_ip}:{WEB_PORT}/upload"))
+                .json(&json!({
+                    "data": {
+                        "filename": filename,
+                        "content": encoded,
+                        "mtime": mtime,
+                    }
+                }))
+                .send()
+                .await;
+
+            self.info(
+                MODULE,
+                format!("[{MODULE}] PUT `{filename}` to {remote_name}"),
+            )
+            .await;
+        }
     }
 
     async fn remove_file(&self, remote_ip: &str, remote_name: &str, filename: &str) {

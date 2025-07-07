@@ -102,6 +102,55 @@ pub async fn check_hash(
 }
 
 #[derive(Deserialize)]
+struct VerifyHashRequest {
+    data: VerifyHashData,
+}
+#[derive(Deserialize)]
+struct VerifyHashData {
+    filename: String,
+    hash_str: String,
+}
+
+#[post("/verify_hash")]
+pub async fn verify_hash(
+    data: web::Json<VerifyHashRequest>,
+    msg_tx: web::Data<Sender<Msg>>,
+) -> impl Responder {
+    let mut result = 1;
+
+    let filename = &data.data.filename;
+    let hash_str = &data.data.hash_str;
+
+    let file_path = PathBuf::from(filename);
+
+    if let Ok(bytes) = fs::read(&file_path) {
+        let hash_str_local = nas_info::hash_str(&String::from_utf8_lossy(&bytes));
+
+        if *hash_str == hash_str_local {
+            result = 0;
+        }
+
+        let hash_str_result = if *hash_str == hash_str_local {
+            "Same"
+        } else {
+            "Different"
+        };
+
+        info(
+            &msg_tx,
+            format!("[{MODULE}] API: verify_hash: `{filename}`, result: {hash_str_result}",),
+        )
+        .await;
+    }
+
+    HttpResponse::Ok().json(json!({
+        "data": {
+            "result": result
+        }
+    }))
+}
+
+#[derive(Deserialize)]
 struct UploadRequest {
     data: UploadData,
 }
@@ -359,6 +408,7 @@ impl Web {
                 .service(upload)
                 .service(remove)
                 .service(check_hash)
+                .service(verify_hash)
                 .wrap(CharsetMiddleware)
                 .service(
                     Files::new(NAS_NAME, NAS_FOLDER)
