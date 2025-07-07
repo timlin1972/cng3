@@ -22,7 +22,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        utils::log::log_new(&msg_tx, MODULE).await;
+        utils::msg::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -140,21 +140,21 @@ impl PluginUnit {
                 if onboard {
                     self.cmd(MODULE, format!("p system {ACTION_PUBLISH}")).await;
                 }
+
+                // update infos
+                self.cmd(
+                    MODULE,
+                    format!("p infos {ACTION_DEVICES} onboard {name} {onbard_str}"),
+                )
+                .await;
+
+                // update nas
+                self.cmd(
+                    MODULE,
+                    format!("p nas {ACTION_DEVICES} onboard {name} {onbard_str}"),
+                )
+                .await;
             }
-
-            // update infos
-            self.cmd(
-                MODULE,
-                format!("p infos {ACTION_DEVICES} onboard {name} {onbard_str}"),
-            )
-            .await;
-
-            // update nas
-            self.cmd(
-                MODULE,
-                format!("p nas {ACTION_DEVICES} onboard {name} {onbard_str}"),
-            )
-            .await;
         }
     }
 

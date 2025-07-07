@@ -14,7 +14,7 @@ use crate::cfg;
 use crate::consts::{self, NAS_FOLDER, WEB_PORT};
 use crate::messages::{
     ACTION_DEVICES, ACTION_FILE_MODIFY, ACTION_FILE_REMOVE, ACTION_INIT, ACTION_NAS_STATE,
-    ACTION_ONBOARD, ACTION_SHOW, ACTION_TAILSCALE_IP, Cmd, Data, Msg,
+    ACTION_ONBOARD, ACTION_SELF_NAS_STATE, ACTION_SHOW, ACTION_TAILSCALE_IP, Cmd, Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{
@@ -38,7 +38,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        utils::log::log_new(&msg_tx, MODULE).await;
+        utils::msg::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -119,6 +119,22 @@ impl PluginUnit {
         }
     }
 
+    async fn handle_cmd_self_nas_state(&mut self, cmd_parts: &[String]) {
+        if let Some(nas_state) = cmd_parts.get(3) {
+            match nas_state.as_str() {
+                "Synced" => {
+                    self.nas_state = NasState::Synced;
+                    self.update_infos_client_nas_state().await;
+                }
+                "Syncing" => {
+                    self.nas_state = NasState::Syncing;
+                    self.update_infos_client_nas_state().await;
+                }
+                _ => todo!(),
+            }
+        }
+    }
+
     async fn handle_nas_event_client_in_state_unsync_onboard(&mut self) {
         // if nas_server_ip ready?
         let nas_server_ip = self.get_nas_server_ip().await;
@@ -126,124 +142,147 @@ impl PluginUnit {
             let msg_tx_clone = self.msg_tx.clone();
             let nas_server_clone = self.nas_server.clone();
             tokio::spawn(async move {
+                utils::msg::log_info(&msg_tx_clone, MODULE, format!("[{MODULE}] {}: Unknown IP, re-onboard in {WAITING_FOR_NAS_SERVER_IP_DELAY} seconds.", &nas_server_clone)).await;
                 tokio::time::sleep(tokio::time::Duration::from_secs(
                     WAITING_FOR_NAS_SERVER_IP_DELAY,
                 ))
                 .await;
 
                 // re-onboard
-                let msg = Msg {
-                    ts: utils::time::ts(),
-                    module: MODULE.to_string(),
-                    data: Data::Cmd(Cmd {
-                        cmd: format!("p nas {ACTION_DEVICES} onboard {nas_server_clone} '1'"),
-                    }),
-                };
-                let _ = msg_tx_clone.send(msg).await;
+                utils::msg::cmd(
+                    &msg_tx_clone,
+                    MODULE,
+                    format!("p nas {ACTION_DEVICES} onboard {nas_server_clone} '1'"),
+                )
+                .await;
             });
-
-            self.info(
-                MODULE,
-                format!("[{MODULE}] {}: Unknown IP, re-onboard.", self.nas_server),
-            )
-            .await;
 
             return;
         }
+
         let nas_server_ip = nas_server_ip.unwrap();
+        let msg_tx_clone = self.msg_tx.clone();
+        let nas_server_clone = self.nas_server.clone();
+        tokio::spawn(async move {
+            loop {
+                // get file_list
+                let file_list = FileList::new(consts::NAS_FOLDER).await;
 
-        loop {
-            // get file_list
-            let file_list = FileList::new(consts::NAS_FOLDER).await;
-
-            // send to server
-            let client = reqwest::Client::new();
-            let json: serde_json::Value = client
-                .post(format!("http://{nas_server_ip}:{WEB_PORT}/check_hash"))
-                .json(&json!({
-                    "data": {
-                        "name": cfg::name(),
-                        "hash_str": file_list.hash_str,
-                    }
-                }))
-                .send()
-                .await
-                .unwrap()
-                .text()
-                .await
-                .unwrap()
-                .parse()
-                .unwrap();
-
-            let result = json["data"]["result"].as_u64().unwrap();
-
-            if result == 0 {
-                self.info(
+                // send to server
+                utils::msg::log_info(
+                    &msg_tx_clone,
                     MODULE,
-                    format!("[{MODULE}] {}: Hash matched. Synced.", self.nas_server),
+                    format!("[{MODULE}] {}: Check hash.", &nas_server_clone),
                 )
                 .await;
 
-                self.nas_state = NasState::Synced;
-                self.update_infos_client_nas_state().await;
-                return;
-            }
+                let client = reqwest::Client::new();
+                let json: serde_json::Value = client
+                    .post(format!("http://{}:{WEB_PORT}/check_hash", &nas_server_ip))
+                    .json(&json!({
+                        "data": {
+                            "name": cfg::name(),
+                            "hash_str": file_list.hash_str,
+                        }
+                    }))
+                    .send()
+                    .await
+                    .unwrap()
+                    .text()
+                    .await
+                    .unwrap()
+                    .parse()
+                    .unwrap();
 
-            self.info(
-                MODULE,
-                format!(
-                    "[{MODULE}] {}: Hash mismatched. Start to sync.",
-                    self.nas_server
-                ),
-            )
-            .await;
+                let result = json["data"]["result"].as_u64().unwrap();
 
-            self.nas_state = NasState::Syncing;
-            self.update_infos_client_nas_state().await;
+                if result == 0 {
+                    utils::msg::log_info(
+                        &msg_tx_clone,
+                        MODULE,
+                        format!("[{MODULE}] {}: Hash matched. Synced.", &nas_server_clone),
+                    )
+                    .await;
+                    utils::msg::cmd(
+                        &msg_tx_clone,
+                        MODULE,
+                        format!("p nas {ACTION_SELF_NAS_STATE} Synced"),
+                    )
+                    .await;
+                    break;
+                } else {
+                    utils::msg::log_info(
+                        &msg_tx_clone,
+                        MODULE,
+                        format!(
+                            "[{MODULE}] {}: Hash mismatched. Start to sync.",
+                            &nas_server_clone
+                        ),
+                    )
+                    .await;
+                    utils::msg::cmd(
+                        &msg_tx_clone,
+                        MODULE,
+                        format!("p nas {ACTION_SELF_NAS_STATE} Syncing"),
+                    )
+                    .await;
 
-            let file_list_server = json["data"]["file_list"].clone();
-            let file_list_server: FileList = serde_json::from_value(file_list_server).unwrap();
+                    let file_list_server = json["data"]["file_list"].clone();
+                    let file_list_server: FileList =
+                        serde_json::from_value(file_list_server).unwrap();
 
-            let actions = nas_info::compare_and_generate_actions(&file_list_server, &file_list);
-            for action in &actions {
-                match action {
-                    SyncAction::GetFile { filename, mtime: _ } => {
-                        let client = reqwest::Client::new();
-                        let resp: serde_json::Value = client
-                            .post(format!("http://{nas_server_ip}:{WEB_PORT}/download"))
-                            .json(&json!({
-                                "data": {
-                                    "filename": filename,
-                                }
-                            }))
-                            .send()
-                            .await
-                            .unwrap()
-                            .text()
-                            .await
-                            .unwrap()
-                            .parse()
-                            .unwrap();
+                    let actions =
+                        nas_info::compare_and_generate_actions(&file_list_server, &file_list);
+                    for action in &actions {
+                        match action {
+                            SyncAction::GetFile { filename, mtime: _ } => {
+                                let client = reqwest::Client::new();
+                                let resp: serde_json::Value = client
+                                    .post(format!("http://{}:{WEB_PORT}/download", &nas_server_ip))
+                                    .json(&json!({
+                                        "data": {
+                                            "filename": filename,
+                                        }
+                                    }))
+                                    .send()
+                                    .await
+                                    .unwrap()
+                                    .text()
+                                    .await
+                                    .unwrap()
+                                    .parse()
+                                    .unwrap();
 
-                        let filename = resp["data"]["filename"].as_str().unwrap();
-                        let content = resp["data"]["content"].as_str().unwrap();
-                        let mtime = resp["data"]["mtime"].as_str().unwrap();
+                                let filename = resp["data"]["filename"].as_str().unwrap();
+                                let content = resp["data"]["content"].as_str().unwrap();
+                                let mtime = resp["data"]["mtime"].as_str().unwrap();
 
-                        let _ = nas_info::write_file(filename, content, mtime).await;
+                                let _ = nas_info::write_file(filename, content, mtime).await;
 
-                        self.info(
-                            MODULE,
-                            format!("[{MODULE}] GET `{filename}` from {}", self.nas_server),
-                        )
-                        .await;
-                    }
-                    SyncAction::PutFile { filename, mtime: _ } => {
-                        self.put_file(&nas_server_ip, &self.nas_server, filename)
-                            .await;
+                                utils::msg::log_info(
+                                    &msg_tx_clone,
+                                    MODULE,
+                                    format!(
+                                        "[{MODULE}] GET `{filename}` from {}",
+                                        &nas_server_clone
+                                    ),
+                                )
+                                .await;
+                            }
+                            SyncAction::PutFile { filename, mtime: _ } => {
+                                put_file(
+                                    &msg_tx_clone,
+                                    &nas_server_ip,
+                                    &nas_server_clone,
+                                    filename,
+                                )
+                                .await;
+                            }
+                        }
                     }
                 }
             }
-        }
+        });
     }
 
     async fn handle_nas_event_client_in_state_unsync(&mut self, nas_event: &NasEvent) {
@@ -422,76 +461,6 @@ impl PluginUnit {
         }
     }
 
-    async fn put_file(&self, remote_ip: &str, remote_name: &str, filename: &str) {
-        let path = Path::new(filename);
-        if !path.exists() {
-            self.warn(
-                MODULE,
-                format!("[{MODULE}] PUT `{filename}` failed. Fild not found."),
-            )
-            .await;
-            return;
-        }
-
-        let file_path = PathBuf::from(filename);
-
-        let bytes = fs::read(&file_path).unwrap();
-        let hash_str = nas_info::hash_str(&String::from_utf8_lossy(&bytes));
-
-        let client = reqwest::Client::new();
-        let json: serde_json::Value = client
-            // let json = client
-            .post(format!("http://{remote_ip}:{WEB_PORT}/verify_hash"))
-            .json(&json!({
-                "data": {
-                    "filename": filename,
-                    "hash_str": hash_str,
-                }
-            }))
-            .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap()
-            .parse()
-            .unwrap();
-
-        let result = json["data"]["result"].as_u64().unwrap();
-        if result == 0 {
-            self.info(
-                MODULE,
-                format!("[{MODULE}] PUT `{filename}` to {remote_name} ignored. Same."),
-            )
-            .await;
-        } else {
-            let mtime = fs::metadata(&file_path)
-                .and_then(|meta| meta.modified())
-                .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
-                .unwrap_or_else(|_| Utc::now().to_rfc3339());
-            let encoded = general_purpose::STANDARD.encode(&bytes);
-
-            let client = reqwest::Client::new();
-            let _ = client
-                .post(format!("http://{remote_ip}:{WEB_PORT}/upload"))
-                .json(&json!({
-                    "data": {
-                        "filename": filename,
-                        "content": encoded,
-                        "mtime": mtime,
-                    }
-                }))
-                .send()
-                .await;
-
-            self.info(
-                MODULE,
-                format!("[{MODULE}] PUT `{filename}` to {remote_name}"),
-            )
-            .await;
-        }
-    }
-
     async fn remove_file(&self, remote_ip: &str, remote_name: &str, filename: &str) {
         let client = reqwest::Client::new();
         let _ = client
@@ -524,7 +493,8 @@ impl PluginUnit {
                 // send to all clients except me
                 for nas_info in &self.nas_infos {
                     if nas_info.name != self.nas_server && nas_info.tailscale_ip.is_some() {
-                        self.put_file(
+                        put_file(
+                            &self.msg_tx,
                             &nas_info.tailscale_ip.clone().unwrap(),
                             &nas_info.name,
                             &filename,
@@ -537,8 +507,7 @@ impl PluginUnit {
             else {
                 if self.nas_state == NasState::Synced {
                     let nas_server_ip = self.get_nas_server_ip().await.unwrap(); // must NOT be None
-                    self.put_file(&nas_server_ip, &self.nas_server, &filename)
-                        .await;
+                    put_file(&self.msg_tx, &nas_server_ip, &self.nas_server, &filename).await;
                 }
             }
         }
@@ -599,6 +568,7 @@ impl plugins_main::Plugin for PluginUnit {
                     ACTION_NAS_STATE => self.handle_cmd_nas_state(&cmd_parts).await,
                     ACTION_FILE_MODIFY => self.handle_cmd_file_modify(&cmd_parts).await,
                     ACTION_FILE_REMOVE => self.handle_cmd_file_remove(&cmd_parts).await,
+                    ACTION_SELF_NAS_STATE => self.handle_cmd_self_nas_state(&cmd_parts).await,
                     _ => {
                         self.info(
                             MODULE,
@@ -617,6 +587,78 @@ impl plugins_main::Plugin for PluginUnit {
                 )
                 .await;
             }
+        }
+    }
+}
+
+async fn put_file(msg_tx: &Sender<Msg>, remote_ip: &str, remote_name: &str, filename: &str) {
+    let path = Path::new(filename);
+    if !path.exists() {
+        utils::msg::log_warn(
+            msg_tx,
+            MODULE,
+            format!("[{MODULE}] PUT `{filename}` failed. Fild not found."),
+        )
+        .await;
+    } else {
+        let file_path = PathBuf::from(filename);
+
+        let bytes = fs::read(&file_path).unwrap();
+        let hash_str = nas_info::hash_str(&String::from_utf8_lossy(&bytes));
+
+        let client = reqwest::Client::new();
+        let json: serde_json::Value = client
+            // let json = client
+            .post(format!("http://{remote_ip}:{WEB_PORT}/verify_hash"))
+            .json(&json!({
+                "data": {
+                    "filename": filename,
+                    "hash_str": hash_str,
+                }
+            }))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        let result = json["data"]["result"].as_u64().unwrap();
+        if result == 0 {
+            utils::msg::log_info(
+                msg_tx,
+                MODULE,
+                format!("[{MODULE}] PUT `{filename}` to {remote_name} ignored. Same."),
+            )
+            .await;
+        } else {
+            let mtime = fs::metadata(&file_path)
+                .and_then(|meta| meta.modified())
+                .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
+                .unwrap_or_else(|_| Utc::now().to_rfc3339());
+            let encoded = general_purpose::STANDARD.encode(&bytes);
+
+            let client = reqwest::Client::new();
+            let _ = client
+                .post(format!("http://{remote_ip}:{WEB_PORT}/upload"))
+                .json(&json!({
+                    "data": {
+                        "filename": filename,
+                        "content": encoded,
+                        "mtime": mtime,
+                    }
+                }))
+                .send()
+                .await;
+
+            utils::msg::log_info(
+                msg_tx,
+                MODULE,
+                format!("[{MODULE}] PUT `{filename}` to {remote_name}"),
+            )
+            .await;
         }
     }
 }

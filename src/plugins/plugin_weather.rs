@@ -6,7 +6,7 @@ use crate::messages::{ACTION_INIT, ACTION_SHOW, Cmd, Data, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{
     self,
-    weather::{self, City},
+    weather::{self, City, Weather, WeatherDaily},
 };
 
 const MODULE: &str = "weather";
@@ -24,7 +24,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        utils::log::log_new(&msg_tx, MODULE).await;
+        utils::msg::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),
@@ -41,47 +41,69 @@ impl PluginUnit {
             return;
         }
 
-        let mut cities = std::mem::take(&mut self.cities);
-        for city in &mut cities {
-            let weather = weather::get_weather(city.latitude, city.longitude).await;
-            if let Ok(weather) = weather {
-                self.cmd(
-                    MODULE,
-                    format!(
-                        "p {} weather update summary {} {} {} {}",
-                        self.gui_panel,
-                        city.name,
-                        weather.time,
-                        weather.temperature,
-                        weather.weathercode
-                    ),
-                )
-                .await;
-
-                for (idx, daily) in weather.daily.iter().enumerate() {
-                    self.cmd(
+        let cities = self.cities.clone();
+        let msg_tx_clone = self.msg_tx.clone();
+        let gui_panel_clone = self.gui_panel.clone();
+        tokio::spawn(async move {
+            for city in &cities {
+                let weather = weather::get_weather(city.latitude, city.longitude).await;
+                if let Ok(weather) = weather {
+                    utils::msg::cmd(
+                        &msg_tx_clone,
                         MODULE,
                         format!(
-                            "p {} weather update daily {} {} {} {} {} {} {}",
-                            self.gui_panel,
-                            city.name,
-                            idx,
-                            daily.time,
-                            daily.temperature_2m_max,
-                            daily.temperature_2m_min,
-                            daily.precipitation_probability_max,
-                            daily.weather_code,
+                            "p weather update_item summary {} {} {} {}",
+                            city.name, weather.time, weather.temperature, weather.weathercode
                         ),
                     )
                     .await;
+
+                    utils::msg::cmd(
+                        &msg_tx_clone,
+                        MODULE,
+                        format!(
+                            "p {gui_panel_clone} weather update_item summary {} {} {} {}",
+                            city.name, weather.time, weather.temperature, weather.weathercode
+                        ),
+                    )
+                    .await;
+
+                    for (idx, daily) in weather.daily.iter().enumerate() {
+                        utils::msg::cmd(
+                            &msg_tx_clone,
+                            MODULE,
+                            format!(
+                                "p weather update_item daily {} {} {} {} {} {} {}",
+                                city.name,
+                                idx,
+                                daily.time,
+                                daily.temperature_2m_max,
+                                daily.temperature_2m_min,
+                                daily.precipitation_probability_max,
+                                daily.weather_code,
+                            ),
+                        )
+                        .await;
+
+                        utils::msg::cmd(
+                            &msg_tx_clone,
+                            MODULE,
+                            format!(
+                                "p {gui_panel_clone} weather update_item daily {} {} {} {} {} {} {}",
+                                city.name,
+                                idx,
+                                daily.time,
+                                daily.temperature_2m_max,
+                                daily.temperature_2m_min,
+                                daily.precipitation_probability_max,
+                                daily.weather_code,
+                            )
+                        )
+                        .await;
+                    }
                 }
-
-                city.weather = Some(weather);
             }
-        }
-        self.cities = cities;
-
-        self.info(MODULE, format!("[{MODULE}] updated")).await;
+        });
     }
 
     async fn handle_cmd_init(&mut self) {
@@ -163,6 +185,87 @@ impl PluginUnit {
             .await;
         }
     }
+
+    async fn handle_cmd_update_item(&mut self, cmd_parts: &[String]) {
+        if let Some(class) = cmd_parts.get(3) {
+            match class.as_str() {
+                "summary" => {
+                    if let (Some(name), Some(time), Some(temperature), Some(weathercode)) = (
+                        cmd_parts.get(4),
+                        cmd_parts.get(5),
+                        cmd_parts.get(6),
+                        cmd_parts.get(7),
+                    ) {
+                        if let Some(city) = self.cities.iter_mut().find(|city| city.name == *name) {
+                            let time = time.to_string();
+                            let temperature = temperature.parse::<f32>().unwrap();
+                            let weathercode = weathercode.parse::<u8>().unwrap();
+
+                            if let Some(weather) = city.weather.as_mut() {
+                                weather.time = time;
+                                weather.temperature = temperature;
+                                weather.weathercode = weathercode;
+                            } else {
+                                city.weather = Some(Weather {
+                                    time,
+                                    temperature,
+                                    weathercode,
+                                    daily: vec![],
+                                });
+                            }
+                        }
+                    }
+                }
+                "daily" => {
+                    if let (
+                        Some(name),
+                        Some(idx),
+                        Some(time),
+                        Some(temperature_2m_max),
+                        Some(temperature_2m_min),
+                        Some(precipitation_probability_max),
+                        Some(weather_code),
+                    ) = (
+                        cmd_parts.get(4),
+                        cmd_parts.get(5),
+                        cmd_parts.get(6),
+                        cmd_parts.get(7),
+                        cmd_parts.get(8),
+                        cmd_parts.get(9),
+                        cmd_parts.get(10),
+                    ) {
+                        if let Some(city) = self.cities.iter_mut().find(|city| city.name == *name) {
+                            let idx = idx.parse::<usize>().unwrap();
+                            let daily = WeatherDaily {
+                                time: time.to_string(),
+                                temperature_2m_max: temperature_2m_max.parse::<f32>().unwrap(),
+                                temperature_2m_min: temperature_2m_min.parse::<f32>().unwrap(),
+                                precipitation_probability_max: precipitation_probability_max
+                                    .parse::<u8>()
+                                    .unwrap(),
+                                weather_code: weather_code.parse::<u8>().unwrap(),
+                            };
+
+                            if let Some(weather) = city.weather.as_mut() {
+                                if weather.daily.len() <= idx {
+                                    weather.daily.resize_with(idx + 1, || WeatherDaily {
+                                        time: String::new(),
+                                        temperature_2m_max: 0.0,
+                                        temperature_2m_min: 0.0,
+                                        precipitation_probability_max: 0,
+                                        weather_code: 0,
+                                    });
+                                }
+
+                                weather.daily[idx] = daily;
+                            }
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -183,6 +286,7 @@ impl plugins_main::Plugin for PluginUnit {
                     ACTION_INIT => self.handle_cmd_init().await,
                     ACTION_SHOW => self.handle_cmd_show().await,
                     "update" => self.handle_cmd_update().await,
+                    "update_item" => self.handle_cmd_update_item(&cmd_parts).await,
                     "add" => self.handle_cmd_add(&cmd_parts).await,
                     _ => {
                         self.warn(

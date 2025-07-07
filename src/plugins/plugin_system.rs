@@ -15,7 +15,7 @@ use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{self, dev_info};
 
 const MODULE: &str = "system";
-const VERSION: &str = "3.0.3";
+const VERSION: &str = "3.0.4";
 const PUBLISH_INTERVAL: u64 = 300;
 
 #[derive(Debug)]
@@ -34,7 +34,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Self {
-        utils::log::log_new(&msg_tx, MODULE).await;
+        utils::msg::log_new(&msg_tx, MODULE).await;
 
         let msg_tx_clone = msg_tx.clone();
         let mut shutdown_rx = shutdown_tx.subscribe();
