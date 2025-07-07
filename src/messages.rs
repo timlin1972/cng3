@@ -18,6 +18,7 @@ pub const ACTION_LOG: &str = "log";
 pub const ACTION_NAS_STATE: &str = "nas_state";
 pub const ACTION_ONBOARD: &str = "onboard";
 pub const ACTION_PUBLISH: &str = "publish";
+pub const ACTION_SELF_NAS_STATE: &str = "self_nas_state";
 pub const ACTION_SHOW: &str = "show";
 pub const ACTION_TAILSCALE_IP: &str = "tailscale_ip";
 pub const ACTION_TEMPERATURE: &str = "temperature";

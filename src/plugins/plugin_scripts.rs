@@ -19,7 +19,7 @@ pub struct PluginUnit {
 
 impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Self {
-        utils::log::log_new(&msg_tx, MODULE).await;
+        utils::msg::log_new(&msg_tx, MODULE).await;
 
         Self {
             name: MODULE.to_owned(),

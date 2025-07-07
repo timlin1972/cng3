@@ -1,7 +1,7 @@
 pub mod dev_info;
 pub mod ffmpeg;
-pub mod log;
 pub mod mode;
+pub mod msg;
 pub mod nas_info;
 pub mod panel;
 pub mod system;

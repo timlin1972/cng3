@@ -87,7 +87,7 @@ impl Plugins {
                 as Box<dyn Plugin + Send + Sync>,
         ];
 
-        utils::log::log_new(&msg_tx, MODULE).await;
+        utils::msg::log_new(&msg_tx, MODULE).await;
 
         Self { msg_tx, plugins }
     }

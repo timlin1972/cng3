@@ -34,7 +34,7 @@ use crate::utils::{
 };
 
 const MODULE: &str = "web";
-const MAX_SIZE: usize = 50 * 1024 * 1024; // 50MB
+const MAX_SIZE: usize = 100 * 1024 * 1024; // 100MB
 const API_V1_UPLOAD: &str = "/api/v1/upload";
 
 #[get("/")]
