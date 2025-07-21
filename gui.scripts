@@ -9,6 +9,10 @@ p cli init gui command
 p panels create log log 0 0 50 60
 p log gui log
 
+# - runtipi (before nas)
+p runtipi init cng3_pi5
+#              |_ runtipi_server
+
 # - mqtt
 p panels create mqtt mqtt 51 0 50 60
 p mqtt init gui mqtt

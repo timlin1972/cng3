@@ -1,5 +1,6 @@
 # for CLI mode
 p cli init cli
+p runtipi init cng3_pi5
 p mqtt init cli
 p nas init cng3_pi5
 p monitor init

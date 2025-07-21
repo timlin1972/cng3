@@ -200,7 +200,19 @@ async fn handle_event(event: Event, msg_tx: &Sender<Msg>) {
                     data: Data::Cmd(Cmd {
                         cmd: format!(
                             "p nas {ACTION_FILE_MODIFY} {}",
-                            general_purpose::STANDARD.encode(filename)
+                            general_purpose::STANDARD.encode(&filename)
+                        ),
+                    }),
+                };
+                let _ = msg_tx.send(msg).await;
+
+                let msg = Msg {
+                    ts: utils::time::ts(),
+                    module: MODULE.to_string(),
+                    data: Data::Cmd(Cmd {
+                        cmd: format!(
+                            "p runtipi {ACTION_FILE_MODIFY} {}",
+                            general_purpose::STANDARD.encode(&filename)
                         ),
                     }),
                 };

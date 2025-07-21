@@ -5,7 +5,8 @@ use tokio::sync::broadcast;
 use crate::messages::{ACTION_SHOW, Cmd, Data, Log, Msg};
 use crate::plugins::{
     plugin_cli, plugin_devices, plugin_infos, plugin_log, plugin_monitor, plugin_mqtt,
-    plugin_music, plugin_nas, plugin_panels, plugin_scripts, plugin_system, plugin_weather,
+    plugin_music, plugin_nas, plugin_panels, plugin_runtipi, plugin_scripts, plugin_system,
+    plugin_weather,
 };
 use crate::utils;
 
@@ -84,6 +85,8 @@ impl Plugins {
             Box::new(plugin_weather::PluginUnit::new(msg_tx.clone(), shutdown_tx.clone()).await)
                 as Box<dyn Plugin + Send + Sync>,
             Box::new(plugin_music::PluginUnit::new(msg_tx.clone()).await)
+                as Box<dyn Plugin + Send + Sync>,
+            Box::new(plugin_runtipi::PluginUnit::new(msg_tx.clone()).await)
                 as Box<dyn Plugin + Send + Sync>,
         ];
 
