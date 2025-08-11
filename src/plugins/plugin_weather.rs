@@ -143,7 +143,7 @@ impl PluginUnit {
     async fn handle_cmd_show(&mut self) {
         self.info(MODULE, format!("[{MODULE}] Inited: {:?}", self.inited))
             .await;
-        self.info(MODULE, format!("{:<12} {:<7}", "Name", "Temper"))
+        self.info(MODULE, format!("{:<12} {:<7}", "Name", "Temp"))
             .await;
         for city in &self.cities {
             let temperature = if let Some(weather) = &city.weather {

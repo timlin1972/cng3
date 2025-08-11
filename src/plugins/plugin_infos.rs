@@ -66,18 +66,19 @@ impl PluginUnit {
         match self.page_idx {
             0 => {
                 output = format!(
-                    "{:<12} {:<7} {:<10} {:16} {:<7} {:13}",
-                    "Name", "Onboard", "Version", "Tailscale IP", "Temper", "App uptime"
+                    "{:<12} {:<7} {:<10} {:16} {:<7} {:13} {:<16}",
+                    "Name", "Onboard", "Version", "Tailscale IP", "Temp", "App Uptime", "Last Update"
                 );
                 for device in &self.devices {
                     output += &format!(
-                        "\n{:<12} {:<7} {:<10} {:16} {:<7} {:13}",
+                        "\n{:<12} {:<7} {:<10} {:16} {:<7} {:13} {:<16}",
                         device.name,
                         dev_info::onboard_str(device.onboard),
                         device.version.clone().unwrap_or("n/a".to_string()),
                         device.tailscale_ip.clone().unwrap_or("n/a".to_string()),
                         dev_info::temperature_str(device.temperature),
                         dev_info::app_uptime_str(device.app_uptime),
+                        utils::time::ts_str(device.ts),
                     );
                 }
             }
@@ -100,7 +101,7 @@ impl PluginUnit {
             2 => {
                 output = format!(
                     "{:<12} {:<11} {:7} {:20}",
-                    "City", "Update", "Temper", "Weather"
+                    "City", "Update", "Temp", "Weather"
                 );
                 for city in &self.cities {
                     let (update, temperature, weather) = match &city.weather {
