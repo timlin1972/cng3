@@ -205,7 +205,8 @@ impl plugins_main::Plugin for PluginUnit {
 fn get_temperature() -> f32 {
     let components = sysinfo::Components::new_with_refreshed_list();
     for component in &components {
-        if component.label().to_ascii_lowercase().contains("cpu") {
+        let component_label = component.label().to_ascii_lowercase();
+        if component_label.contains("cpu") || component_label.contains("acpitz") {
             return component.temperature().unwrap_or(0.0);
         }
     }
