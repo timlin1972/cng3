@@ -190,6 +190,7 @@ impl PluginUnit {
         if let Some(class) = cmd_parts.get(3) {
             match class.as_str() {
                 "summary" => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(time), Some(temperature), Some(weathercode)) = (
                         cmd_parts.get(4),
                         cmd_parts.get(5),
@@ -217,6 +218,7 @@ impl PluginUnit {
                     }
                 }
                 "daily" => {
+                    #[allow(clippy::collapsible_if)]
                     if let (
                         Some(name),
                         Some(idx),

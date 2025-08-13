@@ -67,7 +67,13 @@ impl PluginUnit {
             0 => {
                 output = format!(
                     "{:<12} {:<7} {:<10} {:16} {:<7} {:13} {:<16}",
-                    "Name", "Onboard", "Version", "Tailscale IP", "Temp", "App Uptime", "Last Update"
+                    "Name",
+                    "Onboard",
+                    "Version",
+                    "Tailscale IP",
+                    "Temp",
+                    "App Uptime",
+                    "Last Update"
                 );
                 for device in &self.devices {
                     output += &format!(
@@ -207,6 +213,7 @@ impl PluginUnit {
                     }
                 }
                 ACTION_VERSION => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(version)) = (cmd_parts.get(4), cmd_parts.get(5)) {
                         if let Some(device) =
                             self.devices.iter_mut().find(|device| device.name == *name)
@@ -217,6 +224,7 @@ impl PluginUnit {
                     }
                 }
                 ACTION_TAILSCALE_IP => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(tailscale_ip)) = (cmd_parts.get(4), cmd_parts.get(5)) {
                         if let Some(device) =
                             self.devices.iter_mut().find(|device| device.name == *name)
@@ -227,6 +235,7 @@ impl PluginUnit {
                     }
                 }
                 ACTION_TEMPERATURE => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(temperature)) = (cmd_parts.get(4), cmd_parts.get(5)) {
                         if let Some(device) =
                             self.devices.iter_mut().find(|device| device.name == *name)
@@ -237,6 +246,7 @@ impl PluginUnit {
                     }
                 }
                 ACTION_APP_UPTIME => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(app_uptime)) = (cmd_parts.get(4), cmd_parts.get(5)) {
                         if let Some(device) =
                             self.devices.iter_mut().find(|device| device.name == *name)
@@ -378,6 +388,7 @@ impl PluginUnit {
         if let Some(action) = cmd_parts.get(3) {
             match action.as_str() {
                 "add" => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(latitude), Some(longitude)) =
                         (cmd_parts.get(4), cmd_parts.get(5), cmd_parts.get(6))
                     {
@@ -395,6 +406,7 @@ impl PluginUnit {
                     if let Some(class) = cmd_parts.get(4) {
                         match class.as_str() {
                             "summary" => {
+                                #[allow(clippy::collapsible_if)]
                                 if let (
                                     Some(name),
                                     Some(time),
@@ -429,6 +441,7 @@ impl PluginUnit {
                                 }
                             }
                             "daily" => {
+                                #[allow(clippy::collapsible_if)]
                                 if let (
                                     Some(name),
                                     Some(idx),

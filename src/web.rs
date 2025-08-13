@@ -364,6 +364,7 @@ where
             let mut res = service.call(req).await?;
 
             if let Some(content_type) = res.headers().get(CONTENT_TYPE) {
+                #[allow(clippy::collapsible_if)]
                 if let Ok(content_type_str) = content_type.to_str() {
                     if content_type_str.starts_with("text/")
                         && !content_type_str.contains("charset")

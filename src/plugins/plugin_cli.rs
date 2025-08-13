@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use tokio::io::{self, AsyncBufReadExt, BufReader};
+use tokio::select;
 use tokio::sync::Mutex;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
@@ -84,6 +85,7 @@ async fn start_input_loop_gui(
         loop {
             // 非同步 poll，避免卡住
             if event::poll(std::time::Duration::from_millis(100)).unwrap_or(false) {
+                #[allow(clippy::collapsible_if)]
                 if let Ok(Event::Key(key)) = event::read() {
                     // 把 key 傳出去給 async task 處理
                     if input_tx.blocking_send(key).is_err() {
@@ -308,12 +310,29 @@ impl plugins_main::Plugin for PluginUnit {
                                 .await;
 
                                 // update sub_title
-                                let sub_title = format!(" - {}", cfg::name());
-                                self.cmd(
-                                    MODULE,
-                                    format!("p panels sub_title {} '{sub_title}'", self.gui_panel),
-                                )
-                                .await;
+                                let msg_tx_clone = self.msg_tx.clone();
+                                let mut shutdown_rx = self.shutdown_tx.subscribe();
+                                let gui_panel_clone = self.gui_panel.clone();
+                                tokio::spawn(async move {
+                                    loop {
+                                        select! {
+                                            _ = sleep(Duration::from_secs(1)) => {
+                                                let ts = utils::time::ts();
+                                                let sub_title = format!(" - {} - {}", cfg::name(), utils::time::ts_str(ts));
+                                                let msg = Msg {
+                                                    ts,
+                                                    module: MODULE.to_string(),
+                                                    data: Data::Cmd(Cmd { cmd: format!("p panels sub_title {gui_panel_clone} '{sub_title}'") }),
+                                                };
+                                                let _ = msg_tx_clone.send(msg).await;
+                                            }
+                                            _ = shutdown_rx.recv() => {
+                                                println!("Shutdown signal received. Exiting task.");
+                                                break;
+                                            }
+                                        }
+                                    }
+                                });
                             }
                         }
                         "cli" => {

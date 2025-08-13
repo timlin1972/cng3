@@ -65,6 +65,7 @@ impl PluginUnit {
 
     async fn handle_nas_event_server(&mut self, name: &String, nas_event: &NasEvent) {
         // only care the nas_event from client
+        #[allow(clippy::collapsible_if)]
         if *name != self.nas_server {
             if let Some(nas_info) = self
                 .nas_infos
@@ -371,6 +372,7 @@ impl PluginUnit {
                     }
                 }
                 ACTION_TAILSCALE_IP => {
+                    #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(tailscale_ip)) = (cmd_parts.get(4), cmd_parts.get(5)) {
                         if let Some(nas_info) = self
                             .nas_infos
@@ -435,6 +437,7 @@ impl PluginUnit {
     }
 
     async fn handle_cmd_nas_state(&mut self, cmd_parts: &[String]) {
+        #[allow(clippy::collapsible_if)]
         if let (Some(name), Some(nas_state)) = (cmd_parts.get(3), cmd_parts.get(4)) {
             if let Some(nas_info) = self
                 .nas_infos

@@ -105,6 +105,7 @@ impl PluginUnit {
     }
 
     fn handle_cmd_size(&mut self, cmd_parts: &[String]) {
+        #[allow(clippy::collapsible_if)]
         if let Some(mut terminal) = self.terminal.take() {
             if let Some(action) = cmd_parts.get(3) {
                 for (idx, panel) in self.panels.iter_mut().enumerate() {
@@ -138,6 +139,7 @@ impl PluginUnit {
     }
 
     fn handle_cmd_location(&mut self, cmd_parts: &[String]) {
+        #[allow(clippy::collapsible_if)]
         if let Some(mut terminal) = self.terminal.take() {
             if let Some(direction) = cmd_parts.get(3) {
                 for (idx, panel) in self.panels.iter_mut().enumerate() {
@@ -187,6 +189,7 @@ impl PluginUnit {
     }
 
     async fn handle_cmd_sub_title(&mut self, cmd_parts: &[String]) {
+        #[allow(clippy::collapsible_if)]
         if let Some(mut terminal) = self.terminal.take() {
             if let (Some(panel_title), Some(sub_title)) = (cmd_parts.get(3), cmd_parts.get(4)) {
                 if let Some(panel) = self.panels.iter_mut().find(|p| p.title == *panel_title) {
@@ -254,7 +257,9 @@ impl plugins_main::Plugin for PluginUnit {
                             self.terminal = Some(terminal);
                         }
                     }
-                    "output_update" => {
+                    "output_update" =>
+                    {
+                        #[allow(clippy::collapsible_if)]
                         if let Some(mut terminal) = self.terminal.take() {
                             if let (Some(panel_title), Some(output)) =
                                 (cmd_parts.get(3), cmd_parts.get(4))
@@ -270,7 +275,9 @@ impl plugins_main::Plugin for PluginUnit {
                             self.terminal = Some(terminal);
                         }
                     }
-                    "output_push" => {
+                    "output_push" =>
+                    {
+                        #[allow(clippy::collapsible_if)]
                         if let Some(mut terminal) = self.terminal.take() {
                             if let (Some(panel_title), Some(output)) =
                                 (cmd_parts.get(3), cmd_parts.get(4))
