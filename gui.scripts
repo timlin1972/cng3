@@ -43,6 +43,14 @@ p weather add 拜縣 19.3583 98.4418
 # - music
 p music init
 
+# - todos
+p todos init
+# p todos add task 點眼藥 daily 8:00 reminder 5
+# p todos add task 點眼藥 daily 12:00 reminder 5
+# p todos add task 點眼藥 daily 16:00 reminder 5
+# p todos add task 點眼藥 daily 20:00 reminder 5
+# p todos add task Robert once 2025/08/28-18:30 reminder 30
+
 # Help
 # p panels create infos infos 0 33 150 15
 #                 |     |     | |  |   |_ y_height

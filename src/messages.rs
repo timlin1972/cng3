@@ -7,12 +7,15 @@ use crate::utils;
 
 const MODULE: &str = "messages";
 
+pub const ACTION_ADD: &str = "add";
 pub const ACTION_APP_UPTIME: &str = "app_uptime";
 pub const ACTION_ARROW: &str = "arrow";
+pub const ACTION_CLI: &str = "cli";
 pub const ACTION_CREATE: &str = "create";
 pub const ACTION_DEVICES: &str = "devices";
 pub const ACTION_FILE_MODIFY: &str = "file_modify";
 pub const ACTION_FILE_REMOVE: &str = "file_remove";
+pub const ACTION_GUI: &str = "gui";
 pub const ACTION_INIT: &str = "init";
 pub const ACTION_LOG: &str = "log";
 pub const ACTION_NAS_STATE: &str = "nas_state";

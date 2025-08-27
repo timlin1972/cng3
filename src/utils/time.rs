@@ -26,6 +26,14 @@ pub fn ts_str_full(ts: u64) -> String {
     datetime_local.format("%Y-%m-%d %H:%M:%S %:z").to_string()
 }
 
+pub fn ts_str_no_tz_no_sec(ts: u64) -> String {
+    let datetime_local: DateTime<Local> = DateTime::from_timestamp(ts as i64, 0)
+        .unwrap_or_else(|| panic!("Failed to parse ts ({ts})"))
+        .with_timezone(&Local);
+
+    datetime_local.format("%Y-%m-%d %H:%M").to_string()
+}
+
 pub fn uptime() -> u64 {
     System::uptime()
 }

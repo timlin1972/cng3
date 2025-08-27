@@ -5,8 +5,9 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::cfg;
 use crate::messages::{
-    ACTION_APP_UPTIME, ACTION_ARROW, ACTION_DEVICES, ACTION_NAS_STATE, ACTION_ONBOARD, ACTION_SHOW,
-    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Msg,
+    ACTION_ADD, ACTION_APP_UPTIME, ACTION_ARROW, ACTION_DEVICES, ACTION_GUI, ACTION_NAS_STATE,
+    ACTION_ONBOARD, ACTION_SHOW, ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd,
+    Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{
@@ -14,11 +15,12 @@ use crate::utils::{
     dev_info::{self, DevInfo},
     nas_info::{NasInfo, NasState},
     panel,
+    task::Task,
     weather::{self, City, Weather, WeatherDaily},
 };
 
 const MODULE: &str = "infos";
-const PAGES: u16 = 4;
+const PAGES: u16 = 5;
 
 #[derive(Debug)]
 pub struct PluginUnit {
@@ -31,6 +33,7 @@ pub struct PluginUnit {
     nas_infos: Vec<NasInfo>, // For server
     page_idx: u16,
     cities: Vec<City>,
+    tasks: Vec<Task>,
 }
 
 impl PluginUnit {
@@ -47,6 +50,7 @@ impl PluginUnit {
             nas_infos: vec![],
             page_idx: 0,
             cities: vec![],
+            tasks: vec![],
         }
     }
 
@@ -178,6 +182,27 @@ impl PluginUnit {
                             output.push_str(" ".repeat(13 - weather.len() * 2 / 3).as_str());
                         }
                     }
+                }
+            }
+            4 => {
+                output = format!(
+                    "{:<3} {:4} {:4} {:<12} {:<16} {:<10}",
+                    "Idx", "Done", "Due", "Name", "Time", "Reminder"
+                );
+
+                for (idx, task) in self.tasks.iter().enumerate() {
+                    let name_width: usize = task.name.chars().map(|c| c.width().unwrap_or(0)).sum();
+                    let name_space = " ".repeat(12 - name_width);
+                    let done_str = if task.done { "✓" } else { "✗" };
+                    let dued_str = if task.dued { "✓" } else { "✗" };
+
+                    output += &format!(
+                        "\n{idx:<3} {done_str:4} {dued_str:4} {}{} {:<16} {:<10}",
+                        task.name,
+                        name_space,
+                        utils::time::ts_str_no_tz_no_sec(task.time),
+                        task.reminder
+                    );
                 }
             }
             _ => (),
@@ -387,7 +412,7 @@ impl PluginUnit {
     async fn handle_cmd_weather(&mut self, cmd_parts: &[String]) {
         if let Some(action) = cmd_parts.get(3) {
             match action.as_str() {
-                "add" => {
+                ACTION_ADD => {
                     #[allow(clippy::collapsible_if)]
                     if let (Some(name), Some(latitude), Some(longitude)) =
                         (cmd_parts.get(4), cmd_parts.get(5), cmd_parts.get(6))
@@ -508,6 +533,75 @@ impl PluginUnit {
             }
         }
     }
+
+    async fn handle_cmd_todos(&mut self, cmd_parts: &[String]) {
+        if let Some(action) = cmd_parts.get(3) {
+            #[allow(clippy::single_match)]
+            match action.as_str() {
+                "update" => {
+                    if let (
+                        Some(id),
+                        Some(parent),
+                        Some(name),
+                        Some(time),
+                        Some(done),
+                        Some(dued),
+                        Some(reminder),
+                        Some(reminded),
+                    ) = (
+                        cmd_parts.get(4),
+                        cmd_parts.get(5),
+                        cmd_parts.get(6),
+                        cmd_parts.get(7),
+                        cmd_parts.get(8),
+                        cmd_parts.get(9),
+                        cmd_parts.get(10),
+                        cmd_parts.get(11),
+                    ) {
+                        let id = id.parse::<uuid::Uuid>().unwrap();
+                        let parent = parent.parse::<uuid::Uuid>().unwrap();
+                        let time = time.parse::<u64>().unwrap();
+                        let done = done == "true";
+                        let dued = dued == "true";
+                        let reminder = reminder.parse::<u32>().unwrap();
+                        let reminded = reminded == "true";
+
+                        if let Some(task) = self.tasks.iter_mut().find(|task| task.id == id) {
+                            task.name = name.to_string();
+                            task.time = time;
+                            task.done = done;
+                            task.dued = dued;
+                            task.reminder = reminder;
+                            task.parent = parent;
+                            task.reminded = reminded;
+                        } else {
+                            self.tasks.push(Task {
+                                id,
+                                name: name.to_string(),
+                                time,
+                                done,
+                                dued,
+                                reminder,
+                                parent,
+                                reminded,
+                            });
+                        }
+                    } else {
+                        self.warn(
+                            MODULE,
+                            format!("[{MODULE}] Missing parameters for cmd `{cmd_parts:?}`.",),
+                        )
+                        .await;
+                    }
+
+                    self.tasks.sort_by_key(|e| e.time);
+
+                    self.panel_output_update().await;
+                }
+                _ => (),
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -525,7 +619,7 @@ impl plugins_main::Plugin for PluginUnit {
             let cmd_parts = shell_words::split(&cmd.cmd).expect("Failed to parse cmd.");
             if let Some(action) = cmd_parts.get(2) {
                 match action.as_str() {
-                    "gui" => {
+                    ACTION_GUI => {
                         if let Some(gui_panel) = cmd_parts.get(3) {
                             self.gui_panel = gui_panel.to_string();
                         }
@@ -545,6 +639,7 @@ impl plugins_main::Plugin for PluginUnit {
                         self.panel_output_update().await;
                     }
                     "weather" => self.handle_cmd_weather(&cmd_parts).await,
+                    "todos" => self.handle_cmd_todos(&cmd_parts).await,
                     _ => {
                         self.warn(
                             MODULE,

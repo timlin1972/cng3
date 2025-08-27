@@ -10,5 +10,6 @@ pub mod plugin_panels;
 pub mod plugin_runtipi;
 pub mod plugin_scripts;
 pub mod plugin_system;
+pub mod plugin_todos;
 pub mod plugin_weather;
 pub mod plugins_main;

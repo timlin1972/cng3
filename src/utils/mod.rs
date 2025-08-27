@@ -5,6 +5,7 @@ pub mod msg;
 pub mod nas_info;
 pub mod panel;
 pub mod system;
+pub mod task;
 pub mod time;
 pub mod weather;
 pub mod yt_dlp;

@@ -6,8 +6,9 @@ use tokio::sync::mpsc::Sender;
 
 use crate::cfg;
 use crate::messages::{
-    ACTION_APP_UPTIME, ACTION_ARROW, ACTION_INIT, ACTION_ONBOARD, ACTION_PUBLISH, ACTION_SHOW,
-    ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd, Data, Msg,
+    ACTION_APP_UPTIME, ACTION_ARROW, ACTION_CLI, ACTION_GUI, ACTION_INIT, ACTION_ONBOARD,
+    ACTION_PUBLISH, ACTION_SHOW, ACTION_TAILSCALE_IP, ACTION_TEMPERATURE, ACTION_VERSION, Cmd,
+    Data, Msg,
 };
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{self, mode::Mode, panel};
@@ -192,7 +193,7 @@ impl PluginUnit {
     ) {
         if let Some(mode) = cmd_parts.get(3) {
             match mode.as_str() {
-                "gui" => {
+                ACTION_GUI => {
                     // avoid re-entry
                     if self.started && self.mode == Mode::ModeGui {
                         self.log(
@@ -217,7 +218,7 @@ impl PluginUnit {
                         .await;
                     }
                 }
-                "cli" => {
+                ACTION_CLI => {
                     // avoid re-entry
                     if self.started && self.mode == Mode::ModeCli {
                         self.log(

@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_INIT, ACTION_SHOW, Cmd, Data, Msg};
+use crate::messages::{ACTION_ADD, ACTION_INIT, ACTION_SHOW, Cmd, Data, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{
     self,
@@ -289,7 +289,7 @@ impl plugins_main::Plugin for PluginUnit {
                     ACTION_SHOW => self.handle_cmd_show().await,
                     "update" => self.handle_cmd_update().await,
                     "update_item" => self.handle_cmd_update_item(&cmd_parts).await,
-                    "add" => self.handle_cmd_add(&cmd_parts).await,
+                    ACTION_ADD => self.handle_cmd_add(&cmd_parts).await,
                     _ => {
                         self.warn(
                             MODULE,

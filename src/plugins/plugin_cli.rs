@@ -12,7 +12,7 @@ use tokio::task;
 use tokio::time::{Duration, sleep};
 
 use crate::cfg;
-use crate::messages::{ACTION_ARROW, ACTION_INIT, Cmd, Data, Log, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_GUI, ACTION_INIT, Cmd, Data, Log, Msg};
 use crate::plugins::plugins_main;
 use crate::utils::{self, mode::Mode, panel};
 
@@ -265,7 +265,7 @@ impl plugins_main::Plugin for PluginUnit {
             if let (Some(action), Some(mode)) = (cmd_parts.get(2), cmd_parts.get(3)) {
                 match action.as_str() {
                     ACTION_INIT => match mode.as_str() {
-                        "gui" => {
+                        ACTION_GUI => {
                             // avoid re-entry
                             if self.started && self.mode == Mode::ModeGui {
                                 self.warn(
