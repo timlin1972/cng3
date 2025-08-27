@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
-use crate::messages::{ACTION_ARROW, ACTION_LOG, Cmd, Data, Msg};
+use crate::messages::{ACTION_ARROW, ACTION_GUI, ACTION_LOG, Cmd, Data, Msg};
 use crate::plugins::plugins_main;
 use crate::utils;
 
@@ -68,7 +68,7 @@ impl plugins_main::Plugin for PluginUnit {
                             .await;
                         }
                     }
-                    "gui" => {
+                    ACTION_GUI => {
                         if let Some(gui_panel) = cmd_parts.get(3) {
                             self.gui_panel = gui_panel.to_string();
                         }
